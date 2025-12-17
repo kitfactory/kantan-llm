@@ -1,0 +1,21 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "kantan-llm"
+version = "0.1.0"
+description = "Minimal LLM client getter for OpenAI + OpenAI-compatible chat APIs."
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = ["openai>=1.0.0"]
+
+[project.optional-dependencies]
+dev = ["pytest>=7.0.0"]
+
+[tool.setuptools]
+packages = ["kantan_llm"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = ["integration: live API integration tests"]

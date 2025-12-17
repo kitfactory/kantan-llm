@@ -1,0 +1,139 @@
+# kantan-llm 😺✨
+
+「LLM呼ぶたびに毎回書くやつ（キー/URL/プロバイダー判定）」を消して、`get_llm()` 一発で呼べる薄いPythonライブラリです。
+
+## インストール 📦
+
+```bash
+pip install kantan-llm
+```
+
+## まずは最短で動かす 🚀
+
+### OpenAI（Responses API が正本）
+
+```bash
+export OPENAI_API_KEY="sk-..."
+```
+
+```python
+from kantan_llm import get_llm
+
+llm = get_llm("gpt-4.1-mini")
+res = llm.responses.create(input="こんにちは。1行で自己紹介して。")
+print(res.output_text)
+```
+
+### OpenAI互換（Chat Completions が正本）
+
+#### LMStudio（例: `openai/gpt-oss-20b`）
+
+```bash
+export LMSTUDIO_BASE_URL="http://192.168.11.16:1234"  # /v1 は省略OK
+```
+
+```python
+from kantan_llm import get_llm
+
+llm = get_llm("openai/gpt-oss-20b", provider="lmstudio")
+cc = llm.chat.completions.create(messages=[{"role": "user", "content": "Return exactly: OK"}], max_tokens=16)
+print(cc.choices[0].message.content)
+```
+
+#### Ollama（例）
+
+```bash
+export OLLAMA_BASE_URL="http://localhost:11434"  # /v1 は省略OK
+```
+
+```python
+from kantan_llm import get_llm
+
+llm = get_llm("llama3.2", provider="ollama")
+cc = llm.chat.completions.create(messages=[{"role": "user", "content": "Return exactly: OK"}], max_tokens=16)
+print(cc.choices[0].message.content)
+```
+
+#### OpenRouter（Claude等を含む）
+
+```bash
+export OPENROUTER_API_KEY="..."
+# もしくは別名（互換の都合で `CLAUDE_API_KEY` もOpenRouterキーとして扱えます）
+# export CLAUDE_API_KEY="..."
+```
+
+```python
+from kantan_llm import get_llm
+
+llm = get_llm("claude-3-5-sonnet-latest")  # キーがあれば provider=openrouter（推測）
+cc = llm.chat.completions.create(messages=[{"role": "user", "content": "Return exactly: OK"}], max_tokens=16)
+print(cc.choices[0].message.content)
+```
+
+#### Google（Gemini / OpenAI互換エンドポイント扱い）
+
+```bash
+export GOOGLE_API_KEY="..."
+```
+
+```python
+from kantan_llm import get_llm
+
+llm = get_llm("gemini-2.0-flash")
+cc = llm.chat.completions.create(messages=[{"role": "user", "content": "Return exactly: OK"}], max_tokens=16)
+print(cc.choices[0].message.content)
+```
+
+## 使い分けルール 🧭
+
+- `gpt-*` → `openai`
+- `gemini-*` → `google`
+- `claude-*` → `openrouter`（`OPENROUTER_API_KEY` または `CLAUDE_API_KEY` がある場合）/ それ以外は `compat`（※ OpenRouter向けに一部モデル名は自動で正規化します）
+- 推測できないモデル名は、環境変数があるものを優先順で選びます: `lmstudio` → `ollama` → `openrouter` → `google`
+
+## 明示指定（上書き）🎯
+
+```python
+from kantan_llm import get_llm
+
+llm = get_llm("gpt-4.1-mini", provider="openai")
+```
+
+## フォールバック（順番が優先度）🧯
+
+```python
+from kantan_llm import get_llm
+
+llm = get_llm("gpt-4.1-mini", providers=["openai", "lmstudio", "openrouter"])
+```
+
+## 環境変数 🔐
+
+- OpenAI
+  - `OPENAI_API_KEY`（必須）
+  - `OPENAI_BASE_URL`（任意）
+- Generic互換（`compat`）
+  - `KANTAN_LLM_BASE_URL`（必須）
+  - `KANTAN_LLM_API_KEY`（任意：未設定ならダミー値を使う）
+- LMStudio
+  - `LMSTUDIO_BASE_URL`（必須）
+- Ollama
+  - `OLLAMA_BASE_URL`（必須）
+- OpenRouter
+  - `OPENROUTER_API_KEY`（必須）
+  - `CLAUDE_API_KEY`（任意：`OPENROUTER_API_KEY` の別名としても利用可）
+- Google
+  - `GOOGLE_API_KEY`（必須）
+  - `GOOGLE_BASE_URL`（任意）
+
+## エラー例 🧨
+
+- 失敗（OpenAIキー不足）: `python -c 'from kantan_llm import get_llm; get_llm(\"gpt-4.1-mini\")'` → `[kantan-llm][E2] Missing OPENAI_API_KEY for provider: openai`
+
+## テスト 🧪
+
+ライブ統合テスト（実API）はオプトインです:
+
+```bash
+KANTAN_LLM_RUN_LIVE_TESTS=1 pytest -q -m integration
+```

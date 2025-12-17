@@ -1,0 +1,139 @@
+# kantan-llm 😺✨
+
+A tiny Python library that removes the boring boilerplate (keys/URLs/provider selection) so you can call LLMs with a single `get_llm()` 💨
+
+## Install 📦
+
+```bash
+pip install kantan-llm
+```
+
+## Quickstart 🚀
+
+### OpenAI (Responses API is the source of truth)
+
+```bash
+export OPENAI_API_KEY="sk-..."
+```
+
+```python
+from kantan_llm import get_llm
+
+llm = get_llm("gpt-4.1-mini")
+res = llm.responses.create(input="Say hi in one short line.")
+print(res.output_text)
+```
+
+### OpenAI-compatible (Chat Completions is the source of truth)
+
+#### LMStudio (example: `openai/gpt-oss-20b`)
+
+```bash
+export LMSTUDIO_BASE_URL="http://192.168.11.16:1234"  # `/v1` is optional
+```
+
+```python
+from kantan_llm import get_llm
+
+llm = get_llm("openai/gpt-oss-20b", provider="lmstudio")
+cc = llm.chat.completions.create(messages=[{"role": "user", "content": "Return exactly: OK"}], max_tokens=16)
+print(cc.choices[0].message.content)
+```
+
+#### Ollama (example)
+
+```bash
+export OLLAMA_BASE_URL="http://localhost:11434"  # `/v1` is optional
+```
+
+```python
+from kantan_llm import get_llm
+
+llm = get_llm("llama3.2", provider="ollama")
+cc = llm.chat.completions.create(messages=[{"role": "user", "content": "Return exactly: OK"}], max_tokens=16)
+print(cc.choices[0].message.content)
+```
+
+#### OpenRouter (includes Claude, etc.)
+
+```bash
+export OPENROUTER_API_KEY="..."
+# Or alias (for convenience): `CLAUDE_API_KEY` is treated as an OpenRouter key too
+# export CLAUDE_API_KEY="..."
+```
+
+```python
+from kantan_llm import get_llm
+
+llm = get_llm("claude-3-5-sonnet-latest")  # if key exists -> provider=openrouter (inferred)
+cc = llm.chat.completions.create(messages=[{"role": "user", "content": "Return exactly: OK"}], max_tokens=16)
+print(cc.choices[0].message.content)
+```
+
+#### Google (Gemini via an OpenAI-compatible endpoint)
+
+```bash
+export GOOGLE_API_KEY="..."
+```
+
+```python
+from kantan_llm import get_llm
+
+llm = get_llm("gemini-2.0-flash")
+cc = llm.chat.completions.create(messages=[{"role": "user", "content": "Return exactly: OK"}], max_tokens=16)
+print(cc.choices[0].message.content)
+```
+
+## Provider rules 🧭
+
+- `gpt-*` → `openai`
+- `gemini-*` → `google`
+- `claude-*` → `openrouter` (if `OPENROUTER_API_KEY` or `CLAUDE_API_KEY` is set), otherwise `compat` (some names are normalized for OpenRouter)
+- If the model name is not recognizable, it picks the first available provider by env vars: `lmstudio` → `ollama` → `openrouter` → `google`
+
+## Explicit provider 🎯
+
+```python
+from kantan_llm import get_llm
+
+llm = get_llm("gpt-4.1-mini", provider="openai")
+```
+
+## Fallback (order = priority) 🧯
+
+```python
+from kantan_llm import get_llm
+
+llm = get_llm("gpt-4.1-mini", providers=["openai", "lmstudio", "openrouter"])
+```
+
+## Environment variables 🔐
+
+- OpenAI
+  - `OPENAI_API_KEY` (required)
+  - `OPENAI_BASE_URL` (optional)
+- Generic compatible (`compat`)
+  - `KANTAN_LLM_BASE_URL` (required)
+  - `KANTAN_LLM_API_KEY` (optional; falls back to a dummy value)
+- LMStudio
+  - `LMSTUDIO_BASE_URL` (required)
+- Ollama
+  - `OLLAMA_BASE_URL` (required)
+- OpenRouter
+  - `OPENROUTER_API_KEY` (required)
+  - `CLAUDE_API_KEY` (optional; alias for `OPENROUTER_API_KEY`)
+- Google
+  - `GOOGLE_API_KEY` (required)
+  - `GOOGLE_BASE_URL` (optional)
+
+## Error example 💥
+
+- Missing OpenAI key: `python -c 'from kantan_llm import get_llm; get_llm(\"gpt-4.1-mini\")'` → `[kantan-llm][E2] Missing OPENAI_API_KEY for provider: openai`
+
+## Tests 🧪
+
+Live integration tests (real APIs) are opt-in:
+
+```bash
+KANTAN_LLM_RUN_LIVE_TESTS=1 pytest -q -m integration
+```
