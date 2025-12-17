@@ -56,7 +56,7 @@ class KantanLLM:
 
     @property
     def chat(self) -> _ChatAPI:
-        if self.provider not in {"compat", "lmstudio", "ollama", "openrouter", "google"}:
+        if self.provider not in {"compat", "lmstudio", "ollama", "openrouter", "google", "anthropic"}:
             raise WrongAPIError(
                 f"[kantan-llm][E7] Chat Completions API is not enabled for provider: {self.provider}"
             )

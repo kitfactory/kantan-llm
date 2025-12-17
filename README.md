@@ -2,6 +2,16 @@
 
 A tiny Python library that removes the boring boilerplate (keys/URLs/provider selection) so you can call LLMs with a single `get_llm()` 💨
 
+**Big idea:** set env vars for the providers/models you use, then just do `get_llm("model-name")` and it “just connects” 😺✨
+
+## Supported providers (roughly) 🌍
+
+- OpenAI (Responses)
+- Anthropic (Claude via OpenAI-compatible SDK)
+- OpenRouter (OpenAI-compatible Chat)
+- Google (Gemini via OpenAI-compatible Chat)
+- LMStudio / Ollama / any OpenAI-compatible Chat
+
 ## Install 📦
 
 ```bash
@@ -54,18 +64,30 @@ cc = llm.chat.completions.create(messages=[{"role": "user", "content": "Return e
 print(cc.choices[0].message.content)
 ```
 
-#### OpenRouter (includes Claude, etc.)
+#### Anthropic (Claude via OpenAI-compatible SDK)
 
 ```bash
-export OPENROUTER_API_KEY="..."
-# Or alias (for convenience): `CLAUDE_API_KEY` is treated as an OpenRouter key too
-# export CLAUDE_API_KEY="..."
+export CLAUDE_API_KEY="sk-ant-..."
 ```
 
 ```python
 from kantan_llm import get_llm
 
-llm = get_llm("claude-3-5-sonnet-latest")  # if key exists -> provider=openrouter (inferred)
+llm = get_llm("claude-3-5-sonnet-latest")  # if `CLAUDE_API_KEY` exists -> provider=anthropic (inferred)
+cc = llm.chat.completions.create(messages=[{"role": "user", "content": "Return exactly: OK"}], max_tokens=16)
+print(cc.choices[0].message.content)
+```
+
+#### OpenRouter (includes Claude, etc.)
+
+```bash
+export OPENROUTER_API_KEY="..."
+```
+
+```python
+from kantan_llm import get_llm
+
+llm = get_llm("anthropic/claude-3.5-sonnet", provider="openrouter")  # explicit is recommended (Anthropic takes precedence)
 cc = llm.chat.completions.create(messages=[{"role": "user", "content": "Return exactly: OK"}], max_tokens=16)
 print(cc.choices[0].message.content)
 ```
@@ -88,8 +110,8 @@ print(cc.choices[0].message.content)
 
 - `gpt-*` → `openai`
 - `gemini-*` → `google`
-- `claude-*` → `openrouter` (if `OPENROUTER_API_KEY` or `CLAUDE_API_KEY` is set), otherwise `compat` (some names are normalized for OpenRouter)
-- If the model name is not recognizable, it picks the first available provider by env vars: `lmstudio` → `ollama` → `openrouter` → `google`
+- `claude-*` → `anthropic` (if `CLAUDE_API_KEY` is set) → `openrouter` (if `OPENROUTER_API_KEY` is set) → otherwise `compat`
+- If the model name is not recognizable, it picks the first available provider by env vars: `lmstudio` → `ollama` → `openrouter` → `anthropic` → `google`
 
 ## Explicit provider 🎯
 
@@ -121,7 +143,9 @@ llm = get_llm("gpt-4.1-mini", providers=["openai", "lmstudio", "openrouter"])
   - `OLLAMA_BASE_URL` (required)
 - OpenRouter
   - `OPENROUTER_API_KEY` (required)
-  - `CLAUDE_API_KEY` (optional; alias for `OPENROUTER_API_KEY`)
+- Anthropic
+  - `CLAUDE_API_KEY` (required)
+  - `CLAUDE_BASE_URL` (optional)
 - Google
   - `GOOGLE_API_KEY` (required)
   - `GOOGLE_BASE_URL` (optional)

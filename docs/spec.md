@@ -6,7 +6,7 @@
 
 - OpenAI: OpenAI公式API（Responses API を正本とする）
 - 互換（Chat）: OpenAI Chat Completions API 互換のサーバー（他社/ローカル等）
-- provider: `openai` / `compat` / `lmstudio` / `ollama` / `openrouter` / `google` 等の識別子
+- provider: `openai` / `compat` / `lmstudio` / `ollama` / `openrouter` / `anthropic` / `google` 等の識別子
 
 ## 2. API（F1）
 
@@ -42,25 +42,34 @@
 ### 3.2 `claude-*` を指定した場合、互換（Chat）として扱う（F2）
 
 - Given: `model` が `claude-` で始まる
-- And: `OPENROUTER_API_KEY` と `CLAUDE_API_KEY` のどちらも未設定
+- And: `CLAUDE_API_KEY` と `OPENROUTER_API_KEY` のどちらも未設定
 - When: `get_llm(model)` を呼ぶ
 - Then: provider=`compat` を選択する
 
-### 3.3 `claude-*` を指定した場合、OpenRouterとして扱う（F2）
+### 3.3 `claude-*` を指定した場合、Anthropicとして扱う（F2）
 
 - Given: `model` が `claude-` で始まる
-- And: `OPENROUTER_API_KEY` または `CLAUDE_API_KEY` が設定されている
+- And: `CLAUDE_API_KEY` が設定されている
+- When: `get_llm(model)` を呼ぶ
+- Then: provider=`anthropic` を選択する
+- And: Anthropic向けに必要な場合はモデル名を正規化してよい（例: `claude-3-5-sonnet-latest` → `claude-3-7-sonnet-20250219`）
+
+### 3.4 `claude-*` を指定した場合、OpenRouterとして扱う（F2）
+
+- Given: `model` が `claude-` で始まる
+- And: `CLAUDE_API_KEY` が未設定
+- And: `OPENROUTER_API_KEY` が設定されている
 - When: `get_llm(model)` を呼ぶ
 - Then: provider=`openrouter` を選択する
 - And: OpenRouter向けに必要な場合はモデル名を正規化してよい（例: `claude-3-5-sonnet-latest` → `anthropic/claude-3.5-sonnet`）
 
-### 3.4 `gemini-*` を指定した場合、Googleとして扱う（F2）
+### 3.5 `gemini-*` を指定した場合、Googleとして扱う（F2）
 
 - Given: `model` が `gemini-` で始まる
 - When: `get_llm(model)` を呼ぶ
 - Then: provider=`google` を選択する
 
-### 3.5 `openai/...` の明示表記を指定した場合、OpenAIとして扱う（F2）
+### 3.6 `openai/...` の明示表記を指定した場合、OpenAIとして扱う（F2）
 
 - Given: `model` が `openai/` で始まる（例: `openai/gpt-4.1-mini`）
 - When: `get_llm(model)` を呼ぶ
@@ -104,7 +113,7 @@
 ### 5.3 OpenRouter のAPIキーが無い場合、キー不足エラーを返す（F4）
 
 - Given: provider=`openrouter`
-- And: `OPENROUTER_API_KEY` と `CLAUDE_API_KEY` のどちらも未設定
+- And: `OPENROUTER_API_KEY` が未設定
 - When: `get_llm(model)` を呼ぶ
 - Then: Error ID 付きのエラーを送出する
 
@@ -112,6 +121,13 @@
 
 - Given: provider=`google`
 - And: `GOOGLE_API_KEY` が未設定
+- When: `get_llm(model)` を呼ぶ
+- Then: Error ID 付きのエラーを送出する
+
+### 5.5 Anthropic のAPIキーが無い場合、キー不足エラーを返す（F4）
+
+- Given: provider=`anthropic`
+- And: `CLAUDE_API_KEY` が未設定
 - When: `get_llm(model)` を呼ぶ
 - Then: Error ID 付きのエラーを送出する
 
@@ -130,5 +146,6 @@
 | E8 | `InvalidOptionsError` | `[kantan-llm][E8] Specify only one of provider=... or providers=[...]` | オプション不整合 |
 | E9 | `MissingConfigError` | `[kantan-llm][E9] Missing base_url (set LMSTUDIO_BASE_URL or base_url=...) for provider: lmstudio` | LMStudio URL不足 |
 | E10 | `MissingConfigError` | `[kantan-llm][E10] Missing base_url (set OLLAMA_BASE_URL or base_url=...) for provider: ollama` | Ollama URL不足 |
-| E11 | `MissingConfigError` | `[kantan-llm][E11] Missing OPENROUTER_API_KEY (or CLAUDE_API_KEY) for provider: openrouter` | OpenRouterキー不足 |
+| E11 | `MissingConfigError` | `[kantan-llm][E11] Missing OPENROUTER_API_KEY for provider: openrouter` | OpenRouterキー不足 |
 | E12 | `MissingConfigError` | `[kantan-llm][E12] Missing GOOGLE_API_KEY for provider: google` | Googleキー不足 |
+| E13 | `MissingConfigError` | `[kantan-llm][E13] Missing CLAUDE_API_KEY for provider: anthropic` | Anthropicキー不足 |

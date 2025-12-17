@@ -64,9 +64,19 @@ def test_missing_google_key_is_clear(monkeypatch):
     assert str(exc.value) == "[kantan-llm][E12] Missing GOOGLE_API_KEY for provider: google"
 
 
-def test_claude_inference_uses_openrouter_when_claude_api_key_exists(monkeypatch):
-    monkeypatch.setenv("CLAUDE_API_KEY", "openrouter-like-test-key")
+def test_claude_inference_uses_anthropic_when_claude_api_key_exists(monkeypatch):
+    monkeypatch.setenv("CLAUDE_API_KEY", "sk-ant-test")
     monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+
+    llm = get_llm("claude-3-5-sonnet-latest")
+    assert llm.provider == "anthropic"
+    assert llm.model == "claude-3-7-sonnet-20250219"
+    assert callable(llm.chat.completions.create)
+
+
+def test_claude_inference_uses_openrouter_when_openrouter_key_exists(monkeypatch):
+    monkeypatch.delenv("CLAUDE_API_KEY", raising=False)
+    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-or-test")
 
     llm = get_llm("claude-3-5-sonnet-latest")
     assert llm.provider == "openrouter"
@@ -76,10 +86,16 @@ def test_claude_inference_uses_openrouter_when_claude_api_key_exists(monkeypatch
 
 def test_openrouter_key_missing_is_clear(monkeypatch):
     monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
-    monkeypatch.delenv("CLAUDE_API_KEY", raising=False)
     with pytest.raises(MissingConfigError) as exc:
         get_llm("claude-3-5-sonnet-latest", provider="openrouter")
-    assert str(exc.value) == "[kantan-llm][E11] Missing OPENROUTER_API_KEY (or CLAUDE_API_KEY) for provider: openrouter"
+    assert str(exc.value) == "[kantan-llm][E11] Missing OPENROUTER_API_KEY for provider: openrouter"
+
+
+def test_anthropic_key_missing_is_clear(monkeypatch):
+    monkeypatch.delenv("CLAUDE_API_KEY", raising=False)
+    with pytest.raises(MissingConfigError) as exc:
+        get_llm("claude-3-5-sonnet-latest", provider="anthropic")
+    assert str(exc.value) == "[kantan-llm][E13] Missing CLAUDE_API_KEY for provider: anthropic"
 
 
 def test_missing_compat_base_url_is_clear(monkeypatch):

@@ -74,8 +74,10 @@ def get_llm(
                 env_candidates.append("lmstudio")
             if os.getenv("OLLAMA_BASE_URL"):
                 env_candidates.append("ollama")
-            if os.getenv("OPENROUTER_API_KEY") or os.getenv("CLAUDE_API_KEY"):
+            if os.getenv("OPENROUTER_API_KEY"):
                 env_candidates.append("openrouter")
+            if os.getenv("CLAUDE_API_KEY"):
+                env_candidates.append("anthropic")
             if os.getenv("GOOGLE_API_KEY"):
                 env_candidates.append("google")
             if not env_candidates:
@@ -89,19 +91,29 @@ def get_llm(
             return bare_model
 
         raw = model.strip()
-        if provider_name != "openrouter":
-            return raw
-
         if "/" in raw:
             return raw
 
-        aliases = {
-            "claude-3-5-sonnet-latest": "anthropic/claude-3.5-sonnet",
-            "claude-3-5-haiku-latest": "anthropic/claude-3.5-haiku",
-            "claude-3-opus-latest": "anthropic/claude-3-opus",
-            "claude-3-7-sonnet-latest": "anthropic/claude-3.7-sonnet",
-        }
-        return aliases.get(raw, raw)
+        if provider_name == "openrouter":
+            aliases = {
+                "claude-3-5-sonnet-latest": "anthropic/claude-3.5-sonnet",
+                "claude-3-5-haiku-latest": "anthropic/claude-3.5-haiku",
+                "claude-3-opus-latest": "anthropic/claude-3-opus",
+                "claude-3-7-sonnet-latest": "anthropic/claude-3.7-sonnet",
+            }
+            return aliases.get(raw, raw)
+
+        if provider_name == "anthropic":
+            aliases = {
+                "claude-3-5-sonnet-latest": "claude-3-7-sonnet-20250219",
+                "claude-3-7-sonnet-latest": "claude-3-7-sonnet-20250219",
+                "claude-3-5-haiku-latest": "claude-3-5-haiku-20241022",
+                "claude-3-haiku-latest": "claude-3-haiku-20240307",
+                "claude-3-opus-latest": "claude-3-opus-20240229",
+            }
+            return aliases.get(raw, raw)
+
+        return raw
 
     if providers is None:
         candidate = candidates[0]

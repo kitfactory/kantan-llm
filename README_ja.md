@@ -2,6 +2,16 @@
 
 「LLM呼ぶたびに毎回書くやつ（キー/URL/プロバイダー判定）」を消して、`get_llm()` 一発で呼べる薄いPythonライブラリです。
 
+**ポイント:** いろんなプロバイダー/モデルの環境変数をあらかじめ設定しておけば、あとは `get_llm("model-name")` するだけで “いい感じ” に繋がります 😺✨
+
+## 対応プロバイダー（ざっくり）🌍
+
+- OpenAI（Responses）
+- Anthropic（Claude / OpenAI互換SDK）
+- OpenRouter（OpenAI互換Chat）
+- Google（Gemini / OpenAI互換Chat）
+- LMStudio / Ollama / 任意のOpenAI互換（Chat）
+
 ## インストール 📦
 
 ```bash
@@ -54,18 +64,30 @@ cc = llm.chat.completions.create(messages=[{"role": "user", "content": "Return e
 print(cc.choices[0].message.content)
 ```
 
-#### OpenRouter（Claude等を含む）
+#### Anthropic（Claude / OpenAI互換SDK）
 
 ```bash
-export OPENROUTER_API_KEY="..."
-# もしくは別名（互換の都合で `CLAUDE_API_KEY` もOpenRouterキーとして扱えます）
-# export CLAUDE_API_KEY="..."
+export CLAUDE_API_KEY="sk-ant-..."
 ```
 
 ```python
 from kantan_llm import get_llm
 
-llm = get_llm("claude-3-5-sonnet-latest")  # キーがあれば provider=openrouter（推測）
+llm = get_llm("claude-3-5-sonnet-latest")  # `CLAUDE_API_KEY` があれば provider=anthropic（推測）
+cc = llm.chat.completions.create(messages=[{"role": "user", "content": "Return exactly: OK"}], max_tokens=16)
+print(cc.choices[0].message.content)
+```
+
+#### OpenRouter（Claude等を含む）
+
+```bash
+export OPENROUTER_API_KEY="..."
+```
+
+```python
+from kantan_llm import get_llm
+
+llm = get_llm("anthropic/claude-3.5-sonnet", provider="openrouter")  # Anthropic優先のためOpenRouterは明示推奨
 cc = llm.chat.completions.create(messages=[{"role": "user", "content": "Return exactly: OK"}], max_tokens=16)
 print(cc.choices[0].message.content)
 ```
@@ -88,8 +110,8 @@ print(cc.choices[0].message.content)
 
 - `gpt-*` → `openai`
 - `gemini-*` → `google`
-- `claude-*` → `openrouter`（`OPENROUTER_API_KEY` または `CLAUDE_API_KEY` がある場合）/ それ以外は `compat`（※ OpenRouter向けに一部モデル名は自動で正規化します）
-- 推測できないモデル名は、環境変数があるものを優先順で選びます: `lmstudio` → `ollama` → `openrouter` → `google`
+- `claude-*` → `anthropic`（`CLAUDE_API_KEY` がある場合）→ `openrouter`（`OPENROUTER_API_KEY` がある場合）→ それ以外は `compat`
+- 推測できないモデル名は、環境変数があるものを優先順で選びます: `lmstudio` → `ollama` → `openrouter` → `anthropic` → `google`
 
 ## 明示指定（上書き）🎯
 
@@ -121,7 +143,9 @@ llm = get_llm("gpt-4.1-mini", providers=["openai", "lmstudio", "openrouter"])
   - `OLLAMA_BASE_URL`（必須）
 - OpenRouter
   - `OPENROUTER_API_KEY`（必須）
-  - `CLAUDE_API_KEY`（任意：`OPENROUTER_API_KEY` の別名としても利用可）
+- Anthropic
+  - `CLAUDE_API_KEY`（必須）
+  - `CLAUDE_BASE_URL`（任意）
 - Google
   - `GOOGLE_API_KEY`（必須）
   - `GOOGLE_BASE_URL`（任意）

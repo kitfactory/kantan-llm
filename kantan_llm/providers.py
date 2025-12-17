@@ -14,7 +14,7 @@ def _canonical_provider(provider: str) -> ProviderName:
     provider = provider.strip().lower()
     if provider in {"openai"}:
         return "openai"
-    if provider in {"compat", "lmstudio", "ollama", "openrouter", "google"}:
+    if provider in {"compat", "lmstudio", "ollama", "openrouter", "google", "anthropic"}:
         return provider
     raise UnsupportedProviderError(provider)
 
@@ -29,7 +29,7 @@ def split_model_prefix(model: str) -> tuple[str | None, str]:
         return None, model
     maybe_provider, rest = model.split("/", 1)
     maybe_provider = maybe_provider.strip().lower()
-    if maybe_provider in {"openai", "compat", "lmstudio", "ollama", "openrouter", "google"} and rest:
+    if maybe_provider in {"openai", "compat", "lmstudio", "ollama", "openrouter", "google", "anthropic"} and rest:
         return maybe_provider, rest
     return None, model
 
@@ -47,7 +47,11 @@ def infer_provider_from_model(model: str) -> ProviderName:
     if lower.startswith("gpt-"):
         return "openai"
     if lower.startswith("claude-"):
-        return "openrouter" if (os.getenv("OPENROUTER_API_KEY") or os.getenv("CLAUDE_API_KEY")) else "compat"
+        if os.getenv("CLAUDE_API_KEY"):
+            return "anthropic"
+        if os.getenv("OPENROUTER_API_KEY"):
+            return "openrouter"
+        return "compat"
     if lower.startswith("gemini-"):
         return "google"
 
@@ -93,6 +97,13 @@ def resolve_provider_config(
         resolved_base_url = base_url or os.getenv("OPENAI_BASE_URL")
         return ProviderConfig(provider=provider, api_key=resolved_api_key, base_url=resolved_base_url)
 
+    if provider == "anthropic":
+        resolved_api_key = api_key or os.getenv("CLAUDE_API_KEY")
+        if not resolved_api_key:
+            raise MissingConfigError("[kantan-llm][E13] Missing CLAUDE_API_KEY for provider: anthropic")
+        resolved_base_url = base_url or os.getenv("CLAUDE_BASE_URL") or "https://api.anthropic.com/v1"
+        return ProviderConfig(provider=provider, api_key=resolved_api_key, base_url=resolved_base_url)
+
     if provider == "google":
         resolved_api_key = api_key or os.getenv("GOOGLE_API_KEY")
         if not resolved_api_key:
@@ -131,10 +142,10 @@ def resolve_provider_config(
         return ProviderConfig(provider=provider, api_key=resolved_api_key, base_url=resolved_base_url)
 
     if provider == "openrouter":
-        resolved_api_key = api_key or os.getenv("OPENROUTER_API_KEY") or os.getenv("CLAUDE_API_KEY")
+        resolved_api_key = api_key or os.getenv("OPENROUTER_API_KEY")
         if not resolved_api_key:
             raise MissingConfigError(
-                "[kantan-llm][E11] Missing OPENROUTER_API_KEY (or CLAUDE_API_KEY) for provider: openrouter"
+                "[kantan-llm][E11] Missing OPENROUTER_API_KEY for provider: openrouter"
             )
         resolved_base_url = base_url or "https://openrouter.ai/api/v1"
         return ProviderConfig(provider=provider, api_key=resolved_api_key, base_url=resolved_base_url)
