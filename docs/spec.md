@@ -17,6 +17,7 @@
 - Then: `llm` を返す
 - And: OpenAIの場合 `llm.responses.create(...)` が利用できる
 - And: 互換（Chat）の場合 `llm.chat.completions.create(...)` が利用できる
+- And: `llm` は OpenAI SDK クライアント互換として、未定義属性を内部クライアントへ委譲する
 
 ### 2.2 `provider` を指定した場合、推測結果を上書きする（F5）
 

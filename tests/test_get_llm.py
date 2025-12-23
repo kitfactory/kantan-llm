@@ -1,5 +1,7 @@
 import pytest
 
+from types import SimpleNamespace
+
 from kantan_llm import InvalidOptionsError, MissingConfigError, WrongAPIError, get_llm
 
 
@@ -123,3 +125,17 @@ def test_provider_and_providers_is_invalid(monkeypatch):
     with pytest.raises(InvalidOptionsError) as exc:
         get_llm("gpt-4.1-mini", provider="openai", providers=["openai"])
     assert str(exc.value) == "[kantan-llm][E8] Specify only one of provider=... or providers=[...]"
+
+
+def test_llm_delegates_unknown_attrs(monkeypatch):
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+
+    class DummyClient:
+        def __init__(self):
+            self.foo = "bar"
+            self.models = SimpleNamespace(list=lambda: ["ok"])
+
+    monkeypatch.setattr("kantan_llm.OpenAI", lambda **kwargs: DummyClient())
+    llm = get_llm("gpt-4.1-mini")
+    assert llm.foo == "bar"
+    assert llm.models.list() == ["ok"]

@@ -34,6 +34,8 @@ res = llm.responses.create(input="こんにちは。1行で自己紹介して。
 print(res.output_text)
 ```
 
+`llm` は OpenAI SDK 互換で、未定義属性は内部のクライアントへ委譲されます。
+
 ### OpenAI互換（Chat Completions が正本）
 
 #### LMStudio（例: `openai/gpt-oss-20b`）

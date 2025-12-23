@@ -34,6 +34,8 @@ res = llm.responses.create(input="Say hi in one short line.")
 print(res.output_text)
 ```
 
+`llm` is OpenAI SDK compatible (unknown attributes delegate to the underlying client).
+
 ### OpenAI-compatible (Chat Completions is the source of truth)
 
 #### LMStudio (example: `openai/gpt-oss-20b`)

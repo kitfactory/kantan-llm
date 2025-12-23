@@ -65,6 +65,13 @@ class KantanLLM:
     model: str
     client: Any
 
+    # Japanese/English: 未定義属性はOpenAIクライアントへ委譲 / Delegate unknown attrs to OpenAI client.
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self.client, name)
+
+    def __dir__(self) -> list[str]:
+        return sorted(set(super().__dir__()) | set(dir(self.client)))
+
     @property
     def responses(self) -> _ResponsesAPI:
         if self.provider != "openai":
