@@ -1,4 +1,4 @@
-# kantan-llm concept（v0.1）
+# kantan-llm concept（v0.2）
 
 ## 想定ユーザーと困りごと
 
@@ -24,6 +24,7 @@
 | F5 | 明示指定（上書き） | `provider=` / `providers=` で推測を上書きする | F2 | ✅ | 0.1 |
 | F6 | フォールバック | `providers=[...]` で利用可能なものを順に試す | F4, F5 | ◯ | 0.1（MVP+） |
 | F7 | 任意設定ファイル | `provider.json` 等で base_url/api_key を定義できる | F4 | ✗ | 将来 |
+| F8 | Tracing / Tracer | `with trace` と `get_llm(..., tracer=...)` でスパンを記録する（Agents SDK互換） | F1 | ✅ | 0.2 |
 
 ## フェーズ分け
 
@@ -38,5 +39,22 @@
 - Streaming / Async
 - structured output
 - retry/backoff
-- Tracer/OTEL連携
 - キャッシュ、セッション、詳細なレート制御
+
+### Phase 0.2（Tracer追加）
+
+- F8 を実装する
+  - `kantan_llm.tracing.trace(...)`（OpenAI Agents SDK互換I/F）
+  - `get_llm(..., tracer=...)` でLLM呼び出しをスパンとして記録
+  - Tracer実装: PrintTracer / SQLiteTracer / OTELTracer
+
+## 合意済み（F8: PrintTracerのデフォルト）
+
+- 色分け: 入力（プロンプト）と出力を色分けして表示する
+- 出力粒度: usage等の付帯情報は出さず、入力と出力のみ表示する（trace_id/span_id/elapsed等も出さない）
+- 簡易マスク: Token/KEY等の秘匿値っぽい文字列は簡易マスクする（PII対策は将来オプション）
+- 省略: デフォルトは省略しない（上限は環境変数等で設定されたときのみ発動）
+- 自動生成Trace名: `with trace` なしのLLM呼び出しで自動生成するTraceの `workflow_name` は `default_workflow_name` とする
+- 省略上限の環境変数: `KANTAN_LLM_TRACING_MAX_CHARS`
+- 省略上限の適用範囲: PrintTracer / SQLiteTracer / OTELTracer のすべてに共通で適用する
+- 記録する出力内容: 出力テキスト、または構造化出力（structured output）、または関数呼び出し（function calling）の内容を記録対象とする

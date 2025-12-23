@@ -129,6 +129,25 @@ from kantan_llm import get_llm
 llm = get_llm("gpt-4.1-mini", providers=["openai", "lmstudio", "openrouter"])
 ```
 
+## Tracing / Tracer 🧵
+
+By default, `get_llm()` enables a simple tracer that prints input/output (colorized) for each LLM call.
+
+```python
+from kantan_llm import get_llm
+from kantan_llm.tracing import trace
+
+llm = get_llm("gpt-4.1-mini")
+with trace("workflow"):
+    llm.responses.create(input="Say hi.")
+```
+
+More: `docs/tracing.md`
+
+## Examples 📚
+
+- `examples/tracing_basic.py`
+
 ## Environment variables 🔐
 
 - OpenAI

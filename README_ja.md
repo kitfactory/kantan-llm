@@ -129,6 +129,25 @@ from kantan_llm import get_llm
 llm = get_llm("gpt-4.1-mini", providers=["openai", "lmstudio", "openrouter"])
 ```
 
+## Tracing / Tracer 🧵
+
+デフォルトで、`get_llm()` は LLM 呼び出しの入力/出力を色分け表示する簡易トレーサー（PrintTracer）を有効にします。
+
+```python
+from kantan_llm import get_llm
+from kantan_llm.tracing import trace
+
+llm = get_llm("gpt-4.1-mini")
+with trace("workflow"):
+    llm.responses.create(input="こんにちは。1行で挨拶して。")
+```
+
+詳しく: `docs/tracing.md`
+
+## Examples / サンプル 📚
+
+- `examples/tracing_basic.py`
+
 ## 環境変数 🔐
 
 - OpenAI

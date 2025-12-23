@@ -40,3 +40,16 @@ class InvalidOptionsError(KantanLLMError):
     def __init__(self):
         super().__init__("[kantan-llm][E8] Specify only one of provider=... or providers=[...]")
 
+
+class InvalidTracerError(KantanLLMError):
+    """Raised when tracer is invalid. / tracer が不正。"""
+
+    def __init__(self, tracer: object):
+        super().__init__(f"[kantan-llm][E14] Invalid tracer (expected TracingProcessor): {tracer!r}")
+
+
+class MissingDependencyError(KantanLLMError):
+    """Raised when optional dependency is missing. / オプション依存が不足。"""
+
+    def __init__(self, dependency: str):
+        super().__init__(f"[kantan-llm][E15] Missing optional dependency for tracer: {dependency}")

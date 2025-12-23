@@ -1,4 +1,4 @@
-# kantan-llm architecture（v0.1）
+# kantan-llm architecture（v0.2）
 
 ## 1. レイヤーと責務
 
@@ -11,8 +11,12 @@
 - Wrapper layer
   - `llm.responses.create(...)` / `llm.chat.completions.create(...)` を提供する
   - 返却（Responses/ChatCompletions）は原形保持（変換しない）
+- Tracing layer（F8）
+  - `kantan_llm.tracing.trace(...)` とカレントTrace管理（contextvars）を提供する
+  - LLM呼び出しをSpanとして構造化し、Tracer（Processor）へ通知する
+  - Tracer実装（Print/SQLite/OTEL）を提供する（外部SDKに必須依存しない）
 
-依存方向: Public API → Provider → Wrapper（逆依存はしない）
+依存方向: Public API → Provider → Wrapper → Tracing（逆依存はしない）
 
 ## 2. 主要I/F（最小粒度・最小引数）
 
@@ -27,6 +31,7 @@ def get_llm(
     api_key: str | None = None,
     base_url: str | None = None,
     timeout: float | None = None,
+    tracer=None,
 ):
     ...
 ```
@@ -38,8 +43,36 @@ def get_llm(
   - `responses.create(...)`（provider=`openai` のみ）
   - `chat.completions.create(...)`（provider=`compat` のみ）
 
+### 2.3 Tracing（最小I/F）
+
+`kantan-llm` 内部では OpenAI Agents SDK の `TracingProcessor` と同等のメソッド集合を持つI/Fを採用する（必須依存はしない）。
+
+```python
+from typing import Any, Protocol
+
+
+class TracingProcessor(Protocol):
+    def on_trace_start(self, trace: Any) -> None: ...
+    def on_trace_end(self, trace: Any) -> None: ...
+    def on_span_start(self, span: Any) -> None: ...
+    def on_span_end(self, span: Any) -> None: ...
+    def shutdown(self) -> None: ...
+    def force_flush(self) -> None: ...
+
+
+def trace(
+    workflow_name: str,
+    trace_id: str | None = None,
+    group_id: str | None = None,
+    metadata: dict[str, Any] | None = None,
+    disabled: bool = False,
+):
+    ...
+```
+
 ## 3. ログ/エラー方針
 
 - 例外メッセージは必ず Error ID を含める（例: `[kantan-llm][E2] ...`）
 - `providers=[...]` の全滅時は候補ごとの失敗理由をまとめて返す
 - 機密情報（APIキー等）をエラー文面に含めない
+- トレーシング失敗は非致命とし、LLM呼び出し自体は継続する（Tracer側で握りつぶす）

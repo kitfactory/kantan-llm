@@ -1,4 +1,4 @@
-# kantan-llm spec（v0.1）
+# kantan-llm spec（v0.2）
 
 本書は `docs/concept.md` の Spec ID を参照し、Given/When/Then 形式で仕様を定義する。
 
@@ -30,6 +30,13 @@
 - When: `get_llm(model, providers=[...])` を呼ぶ
 - Then: 指定順にプロバイダーを評価して最初に利用可能なものを選ぶ
 - And: 全滅した場合、各候補の失敗理由が分かるエラーを送出する
+
+### 2.4 `tracer` を指定した場合、返却LLMにトレーシングを適用する（F8）
+
+- Given: `tracer` が指定されている（または未指定）
+- When: `get_llm(model, tracer=tracer)` を呼ぶ
+- Then: 返却される `llm` のAPI呼び出し（`responses.create` / `chat.completions.create`）はスパンとして記録される
+- And: `tracer` 未指定の場合は PrintTracer をデフォルトとして利用する
 
 ## 3. プロバイダー推測（F2）
 
@@ -149,3 +156,96 @@
 | E11 | `MissingConfigError` | `[kantan-llm][E11] Missing OPENROUTER_API_KEY for provider: openrouter` | OpenRouterキー不足 |
 | E12 | `MissingConfigError` | `[kantan-llm][E12] Missing GOOGLE_API_KEY for provider: google` | Googleキー不足 |
 | E13 | `MissingConfigError` | `[kantan-llm][E13] Missing CLAUDE_API_KEY for provider: anthropic` | Anthropicキー不足 |
+| E14 | `InvalidTracerError` | `[kantan-llm][E14] Invalid tracer (expected TracingProcessor): {tracer}` | `tracer=` が不正 |
+| E15 | `MissingDependencyError` | `[kantan-llm][E15] Missing optional dependency for tracer: {dependency}` | OTEL等が未導入 |
+
+## 7. Tracing / Tracer（F8）
+
+本章は `docs/concept.md` の F8 を定義し、OpenAI Agents SDK と同等の利用感を目標とする（ただし `kantan-llm` は OpenAI Agents SDK に必須依存しない）。
+
+### 7.1 `trace` を利用した場合、Traceコンテキストを生成できる（F8）
+
+- Given: `workflow_name` が指定されている
+- When: `kantan_llm.tracing.trace(workflow_name, ...)` を呼ぶ
+- Then: `Trace` を返す
+- And: `with trace(...):` で `Trace` が開始/終了される
+
+### 7.2 `with trace` を使わずにLLMを呼んだ場合、自動でTraceを作成して記録する（F8）
+
+- Given: カレントTraceが存在しない
+- When: `llm.responses.create(...)` または `llm.chat.completions.create(...)` を呼ぶ
+- Then: 呼び出し単位で `Trace` を自動生成し、その中にスパンを1つ作成して記録する
+- And: 自動生成Traceの `workflow_name` は `default_workflow_name` とする
+
+### 7.3 `with trace` の内側でLLMを呼んだ場合、同一Traceにスパンを追加して記録する（F8）
+
+- Given: カレントTraceが存在する（`with trace(...):` の内側）
+- When: `llm.responses.create(...)` または `llm.chat.completions.create(...)` を呼ぶ
+- Then: 既存Traceの子スパンとして記録する
+
+### 7.4 Tracer（Processor）I/F は OpenAI Agents SDK と同一のメソッド集合を持つ（F8）
+
+- Given: `tracer` が TracingProcessor互換オブジェクトである
+- When: `tracer.on_trace_start/ on_trace_end/ on_span_start/ on_span_end/ shutdown/ force_flush` を呼ぶ
+- Then: 例外を呼び出し元へ伝播させない（トレーシング失敗は非致命とする）
+
+備考:
+- `kantan-llm` は `agents` を import しないことを保証する（オプション連携を除く）。
+- 互換性は「同名メソッド + 同様の引数」を前提とする（Pythonのダックタイピング）。
+
+### 7.5 OpenAI Agents SDK に Tracer を登録した場合、同じTracer実装で収集できる（F8）
+
+- Given: OpenAI Agents SDK が利用されている
+- When: `agents.tracing.add_trace_processor(tracer)` のように登録する
+- Then: `kantan-llm` の PrintTracer / SQLiteTracer / OTELTracer はそのまま Tracer として利用できる
+
+### 7.6 `get_llm(..., tracer=...)` のデフォルトは PrintTracer とし、色分け表示する（F8）
+
+- Given: `tracer` が未指定
+- When: `get_llm(model)` を呼ぶ
+- Then: PrintTracer を利用する
+- And: 入力（プロンプト）と出力が色分けされて標準出力へ表示される
+- And: usage等の付帯情報はデフォルトでは表示しない
+- And: trace_id / span_id / 経過時間等の付帯情報もデフォルトでは表示しない
+
+### 7.7 Tracer実装を提供する（F8）
+
+#### 7.7.1 PrintTracer
+
+- Given: PrintTracerが有効
+- When: Trace/Span が開始/終了する
+- Then: 入力（プロンプト）と出力を色分けしてログを出力する
+- And: Token/KEY等の秘匿値っぽい文字列は簡易マスクする（例: `sk-...` / `Bearer ...` / `api_key=...`）
+- And: 省略はデフォルトで行わない
+- And: 環境変数 `KANTAN_LLM_TRACING_MAX_CHARS` が設定されている場合のみ、入力/出力を指定文字数で省略して表示する
+- And: 表示は入力と出力のみとし、usage等の付帯情報は表示しない
+
+#### 7.7.2 SQLiteTracer
+
+- Given: SQLiteTracerが有効
+- When: Trace/Span が開始/終了する
+- Then: SQLiteに永続化する（TraceとSpanを後から参照可能）
+- And: 環境変数 `KANTAN_LLM_TRACING_MAX_CHARS` が設定されている場合のみ、保存する入力/出力を指定文字数で省略する
+
+#### 7.7.3 OTELTracer
+
+- Given: OTELTracerが有効
+- When: Trace/Span が開始/終了する
+- Then: OpenTelemetryのSpanとしてエクスポートできる
+- And: 環境変数 `KANTAN_LLM_TRACING_MAX_CHARS` が設定されている場合のみ、送信する入力/出力を指定文字数で省略する
+
+### 7.8 LLM入出力の記録内容（F8）
+
+#### 7.8.1 入力（プロンプト）
+
+- Given: LLM呼び出しが行われる
+- When: Tracerへ入力を記録する
+- Then: `messages`（Chat）または `input`（Responses）に相当する内容を記録する
+
+#### 7.8.2 出力
+
+- Given: LLM呼び出しが成功して応答が返る
+- When: Tracerへ出力を記録する
+- Then: 出力テキストを優先して記録する
+- And: 出力テキストが無い場合、構造化出力（structured output）を記録する
+- And: さらに無い場合、function calling（tool call）の内容を記録する

@@ -4,8 +4,10 @@ from openai import OpenAI
 
 from .errors import (
     InvalidOptionsError,
+    InvalidTracerError,
     KantanLLMError,
     MissingConfigError,
+    MissingDependencyError,
     ProviderInferenceError,
     ProviderUnavailableError,
     UnsupportedProviderError,
@@ -15,6 +17,8 @@ import os
 
 from .providers import infer_provider_from_model, normalize_providers, resolve_provider_config, split_model_prefix
 from .wrappers import KantanLLM
+from .tracing import NoOpTracer, PrintTracer
+from .tracing.setup import set_trace_processors
 
 __all__ = [
     "get_llm",
@@ -26,6 +30,8 @@ __all__ = [
     "ProviderUnavailableError",
     "WrongAPIError",
     "InvalidOptionsError",
+    "InvalidTracerError",
+    "MissingDependencyError",
 ]
 
 
@@ -47,6 +53,7 @@ def get_llm(
     api_key: str | None = options.pop("api_key", None)
     base_url: str | None = options.pop("base_url", None)
     timeout: float | None = options.pop("timeout", None)
+    tracer = options.pop("tracer", _TRACER_UNSET)
 
     if options:
         unknown = ", ".join(sorted(options.keys()))
@@ -57,6 +64,15 @@ def get_llm(
 
     if not isinstance(model, str) or not model.strip():
         raise TypeError("get_llm(model) requires non-empty str model")
+
+    # Japanese/English: Tracerを設定する（デフォルトはPrintTracer） / Configure tracer (default: PrintTracer)
+    if tracer is _TRACER_UNSET:
+        tracer = PrintTracer()
+    elif tracer is None:
+        tracer = NoOpTracer()
+    if not _is_tracing_processor(tracer):
+        raise InvalidTracerError(tracer)
+    set_trace_processors([tracer])
 
     prefixed_provider, bare_model = split_model_prefix(model.strip())
 
@@ -134,3 +150,23 @@ def get_llm(
             continue
 
     raise ProviderUnavailableError(reasons="; ".join(reasons) or "unknown")
+
+
+def _is_tracing_processor(obj: object) -> bool:
+    required = (
+        "on_trace_start",
+        "on_trace_end",
+        "on_span_start",
+        "on_span_end",
+        "shutdown",
+        "force_flush",
+    )
+    for name in required:
+        if not hasattr(obj, name):
+            return False
+        if not callable(getattr(obj, name)):
+            return False
+    return True
+
+
+_TRACER_UNSET = object()
