@@ -188,7 +188,7 @@ def _extract_output(*, api_kind: str, response: Any) -> Any:
 
         output = getattr(response, "output", None)
         if output:
-            return output
+            return _normalize_response_output(output)
 
         return response
 
@@ -203,8 +203,66 @@ def _extract_output(*, api_kind: str, response: Any) -> Any:
                     return content
                 tool_calls = getattr(msg, "tool_calls", None) if not isinstance(msg, dict) else msg.get("tool_calls")
                 if tool_calls:
-                    return tool_calls
+                    return _normalize_tool_calls(tool_calls)
+                reasoning = getattr(msg, "reasoning", None) if not isinstance(msg, dict) else msg.get("reasoning")
+                if reasoning:
+                    return reasoning
     except Exception:
         pass
 
     return response
+
+
+def _normalize_tool_calls(tool_calls: Any) -> Any:
+    # Japanese/English: tool_calls をJSONに近い形へ正規化 / Normalize tool_calls to JSON-like dicts.
+    if isinstance(tool_calls, dict):
+        return tool_calls
+    if not isinstance(tool_calls, (list, tuple)):
+        return tool_calls
+
+    normalized: list[dict[str, Any]] = []
+    for call in tool_calls:
+        if isinstance(call, dict):
+            normalized.append(call)
+            continue
+
+        function = getattr(call, "function", None)
+        normalized.append(
+            {
+                "id": getattr(call, "id", None),
+                "call_id": getattr(call, "call_id", None),
+                "type": getattr(call, "type", None),
+                "name": getattr(call, "name", None) or getattr(function, "name", None),
+                "arguments": getattr(call, "arguments", None) or getattr(function, "arguments", None),
+            }
+        )
+
+    return normalized
+
+
+def _normalize_response_output(output: Any) -> Any:
+    if isinstance(output, dict):
+        return output
+    if not isinstance(output, (list, tuple)):
+        return output
+
+    normalized: list[Any] = []
+    has_tool_call = False
+    for item in output:
+        item_type = getattr(item, "type", None) if not isinstance(item, dict) else item.get("type")
+        if item_type in {"function_call", "tool_call", "tool"}:
+            has_tool_call = True
+            normalized.append(
+                {
+                    "id": getattr(item, "id", None),
+                    "call_id": getattr(item, "call_id", None),
+                    "type": item_type,
+                    "name": getattr(item, "name", None),
+                    "arguments": getattr(item, "arguments", None),
+                    "status": getattr(item, "status", None),
+                }
+            )
+        else:
+            normalized.append(item)
+
+    return normalized if has_tool_call else output

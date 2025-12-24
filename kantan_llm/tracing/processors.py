@@ -31,7 +31,7 @@ class PrintTracer(TracingProcessor):
     def _write_block(self, label: str, text: str, color: str) -> None:
         safe = sanitize_text(text)
         if self._use_color():
-            self._stream.write(f"{color}{label}{self._C_RESET}\n{safe}\n")
+            self._stream.write(f"{color}{label}\n{safe}{self._C_RESET}\n")
         else:
             self._stream.write(f"{label}\n{safe}\n")
         self._stream.flush()

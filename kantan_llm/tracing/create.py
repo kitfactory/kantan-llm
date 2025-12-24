@@ -97,10 +97,33 @@ def dump_for_tracing(value: Any) -> str:
         return ""
     if isinstance(value, str):
         return value
+    formatted = _format_messages(value)
+    if formatted is not None:
+        return formatted
     try:
         return json.dumps(value, ensure_ascii=False, default=str, indent=2)
     except Exception:
         return sanitize_text(str(value))
+
+
+def _format_messages(value: Any) -> str | None:
+    # Japanese/English: Chatのmessages配列は読みやすい形式にする / Format chat messages for readability.
+    if not isinstance(value, (list, tuple)):
+        return None
+    lines: list[str] = []
+    for item in value:
+        role = None
+        content = None
+        if isinstance(item, dict):
+            role = item.get("role")
+            content = item.get("content")
+        else:
+            role = getattr(item, "role", None)
+            content = getattr(item, "content", None)
+        if role is None or content is None:
+            return None
+        lines.append(str(content))
+    return "\n".join(lines)
 
 
 def sanitize_for_tracing(text: str) -> str:
