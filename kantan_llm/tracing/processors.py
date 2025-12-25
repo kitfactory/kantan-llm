@@ -206,6 +206,7 @@ class SQLiteTracer(TracingProcessor):
             "UPDATE traces SET metadata_json = ? WHERE id = ?",
             (json.dumps(metadata, ensure_ascii=False, default=str), trace_id),
         )
+        conn.commit()
 
     def on_trace_start(self, trace) -> None:
         self._upsert_trace(trace)

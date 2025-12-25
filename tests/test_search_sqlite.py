@@ -73,13 +73,20 @@ def test_usage_recorded_in_span_and_trace(tmp_path):
             usage={"input_tokens": 1, "output_tokens": 2, "total_tokens": 3},
         ):
             pass
+        with generation_span(
+            input="again",
+            output="ok",
+            model="gpt-4",
+            usage={"input_tokens": 2, "output_tokens": 1, "total_tokens": 3},
+        ):
+            pass
 
     spans = tracer.get_spans_by_trace(t.trace_id)
     assert spans
-    assert spans[0].usage["total_tokens"] == 3
+    assert sum(sp.usage["total_tokens"] for sp in spans if sp.usage) == 6
     trace_record = tracer.get_trace(t.trace_id)
     assert trace_record is not None
-    assert trace_record.metadata["usage_total"]["total_tokens"] == 3
+    assert trace_record.metadata["usage_total"]["total_tokens"] == 6
 
 
 def test_search_traces_keywords_and_tool_call(tmp_path):
