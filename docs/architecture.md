@@ -15,6 +15,9 @@
   - `kantan_llm.tracing.trace(...)` とカレントTrace管理（contextvars）を提供する
   - LLM呼び出しをSpanとして構造化し、Tracer（Processor）へ通知する
   - Tracer実装（Print/SQLite/OTEL）を提供する（外部SDKに必須依存しない）
+- Search layer（F9）
+  - Trace/Spanの検索I/Fを提供する（SQLite/OTEL共通）
+  - 特定Span/Trace、評価スコア、tool_call有無などの検索を抽象化する
 
 依存方向: Public API → Provider → Wrapper → Tracing（逆依存はしない）
 
@@ -68,6 +71,22 @@ def trace(
     disabled: bool = False,
 ):
     ...
+```
+
+### 2.4 Search（最小I/F）
+
+```python
+from typing import Any, Protocol, Sequence
+
+
+class TraceSearchService(Protocol):
+    def search_traces(self, *, query: "TraceQuery") -> Sequence["TraceRecord"]: ...
+    def search_spans(self, *, query: "SpanQuery") -> Sequence["SpanRecord"]: ...
+    def get_trace(self, trace_id: str) -> "TraceRecord | None": ...
+    def get_span(self, span_id: str) -> "SpanRecord | None": ...
+    def get_spans_by_trace(self, trace_id: str) -> Sequence["SpanRecord"]: ...
+    def get_spans_since(self, trace_id: str, since_seq: int | None = None) -> Sequence["SpanRecord"]: ...
+    def capabilities(self) -> "TraceSearchCapabilities": ...
 ```
 
 ## 3. ログ/エラー方針

@@ -159,6 +159,7 @@
 | E13 | `MissingConfigError` | `[kantan-llm][E13] Missing CLAUDE_API_KEY for provider: anthropic` | Anthropicキー不足 |
 | E14 | `InvalidTracerError` | `[kantan-llm][E14] Invalid tracer (expected TracingProcessor): {tracer}` | `tracer=` が不正 |
 | E15 | `MissingDependencyError` | `[kantan-llm][E15] Missing optional dependency for tracer: {dependency}` | OTEL等が未導入 |
+| E16 | `NotSupportedError` | `[kantan-llm][E16] Not supported: {feature}` | 検索機能の未対応 |
 
 ## 7. Tracing / Tracer（F8）
 
@@ -250,3 +251,66 @@
 - Then: 出力テキストを優先して記録する
 - And: 出力テキストが無い場合、構造化出力（structured output）を記録する
 - And: さらに無い場合、function calling（tool call）の内容を記録する
+
+## 8. Trace検索サービス（F9）
+
+本章は Trace/Span を検索・抽出する共通I/Fを定義する。
+
+### 8.1 検索サービスを呼び出した場合、Trace/Span を取得できる（F9）
+
+- Given: `TraceSearchService` が利用可能
+- When: `search_traces(query=...)` または `search_spans(query=...)` を呼ぶ
+- Then: 条件に一致する `TraceRecord` / `SpanRecord` を返す
+
+### 8.2 trace_id を指定した場合、単一Trace/Spanを取得できる（F9）
+
+- Given: `trace_id` または `span_id` が指定されている
+- When: `get_trace(trace_id)` または `get_span(span_id)` を呼ぶ
+- Then: 対象が存在すれば `Record` を返し、存在しなければ `None` を返す
+
+### 8.3 既存Traceに追加されたSpanを取得できる（F9）
+
+- Given: `trace_id` が指定されている
+- When: `get_spans_since(trace_id, since_seq)` を呼ぶ
+- Then: `since_seq` より後に追加されたSpanを返す（`ingest_seq > since_seq`）
+- And: 返却順は `ingest_seq` 昇順とする
+- And: `since_seq=None` の場合は全件を返す
+
+### 8.4 tool_call / structured output を含むTrace/Spanを抽出できる（F9）
+
+- Given: `has_tool_call` や `keywords` 等の条件が指定されている
+- When: `search_traces` / `search_spans` を呼ぶ
+- Then: 条件に一致するTrace/Spanのみを返す
+
+### 8.5 ルーブリックスコア等の評価値を抽出できる（F9）
+
+- Given: structured output に `rubric.score` 等の値が含まれる
+- When: 検索または抽出処理を実行する
+- Then: 指定キーの値を取得できる
+ - And: `SpanRecord.rubric.score` / `SpanRecord.rubric.comment` に正規化して保持する
+
+### 8.6 keywords の意味は固定とする（F9）
+
+- Given: `keywords` が指定されている
+- When: 検索条件を評価する
+- Then: `input`/`output` を対象に部分一致で検索する
+- And: 複数語は AND として扱う
+- And: 大文字小文字は区別しない
+
+### 8.7 時刻はUTCのaware datetimeで扱う（F9）
+
+- Given: `started_from` / `started_to` を指定して検索する
+- When: 時刻の比較を行う
+- Then: UTCのaware datetimeを正本とし、利用側でユーザーのタイムゾーンへ変換する
+
+### 8.8 capabilities を返す（F9）
+
+- Given: `TraceSearchService` が利用可能
+- When: `capabilities()` を呼ぶ
+- Then: `supports_since` / `supports_limit` 等の可否情報を返す
+
+### 8.9 supports_since=False の場合の挙動（F9）
+
+- Given: `capabilities.supports_since=False`
+- When: `get_spans_since` を呼ぶ
+- Then: `NotSupportedError` を送出する

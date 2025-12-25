@@ -8,6 +8,7 @@ from .errors import (
     KantanLLMError,
     MissingConfigError,
     MissingDependencyError,
+    NotSupportedError,
     ProviderInferenceError,
     ProviderUnavailableError,
     UnsupportedProviderError,
@@ -32,6 +33,7 @@ __all__ = [
     "InvalidOptionsError",
     "InvalidTracerError",
     "MissingDependencyError",
+    "NotSupportedError",
 ]
 
 

@@ -53,3 +53,10 @@ class MissingDependencyError(KantanLLMError):
 
     def __init__(self, dependency: str):
         super().__init__(f"[kantan-llm][E15] Missing optional dependency for tracer: {dependency}")
+
+
+class NotSupportedError(KantanLLMError):
+    """Raised when feature is not supported. / 未対応機能。"""
+
+    def __init__(self, feature: str):
+        super().__init__(f"[kantan-llm][E16] Not supported: {feature}")

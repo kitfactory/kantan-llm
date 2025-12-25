@@ -3,6 +3,14 @@ from __future__ import annotations
 from .create import custom_span, function_span, generation_span, get_current_span, get_current_trace, trace
 from .processor_interface import TracingProcessor
 from .processors import NoOpTracer, OTELTracer, PrintTracer, SQLiteTracer
+from .search import (
+    SpanQuery,
+    SpanRecord,
+    TraceQuery,
+    TraceRecord,
+    TraceSearchCapabilities,
+    TraceSearchService,
+)
 from .provider import DefaultTraceProvider, TraceProvider, get_trace_provider, set_trace_provider
 from .setup import add_trace_processor, set_trace_processors, set_tracing_disabled
 from .spans import Span, SpanError
@@ -29,9 +37,15 @@ __all__ = [
     "OTELTracer",
     "PrintTracer",
     "SQLiteTracer",
+    "SpanQuery",
+    "SpanRecord",
     "Span",
     "SpanError",
     "Trace",
+    "TraceQuery",
+    "TraceRecord",
+    "TraceSearchCapabilities",
+    "TraceSearchService",
     "TraceProvider",
     "TracingProcessor",
 ]

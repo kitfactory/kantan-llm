@@ -146,9 +146,26 @@ with trace("workflow"):
 
 More: `docs/tracing.md`
 
+## Search (SQLite) 🔎
+
+Use `SQLiteTracer` as a lightweight search backend for traces/spans.
+
+```python
+from kantan_llm.tracing import SpanQuery, TraceQuery
+from kantan_llm.tracing.processors import SQLiteTracer
+
+tracer = SQLiteTracer("traces.sqlite3")
+traces = tracer.search_traces(query=TraceQuery(keywords=["hello"], limit=10))
+spans = tracer.search_spans(query=SpanQuery(keywords=["hello"], limit=10))
+```
+
+More: `docs/search.md`
+Tutorial: `docs/tutorial_trace_analysis.md`
+
 ## Examples 📚
 
 - `examples/tracing_basic.py`
+- `examples/search_sqlite.py`
 
 ## Environment variables 🔐
 

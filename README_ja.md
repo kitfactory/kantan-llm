@@ -146,9 +146,26 @@ with trace("workflow"):
 
 詳しく: `docs/tracing.md`
 
+## 検索（SQLite）🔎
+
+`SQLiteTracer` を使うと、Trace/Span を軽量に検索できます。
+
+```python
+from kantan_llm.tracing import SpanQuery, TraceQuery
+from kantan_llm.tracing.processors import SQLiteTracer
+
+tracer = SQLiteTracer("traces.sqlite3")
+traces = tracer.search_traces(query=TraceQuery(keywords=["hello"], limit=10))
+spans = tracer.search_spans(query=SpanQuery(keywords=["hello"], limit=10))
+```
+
+詳しく: `docs/search.md`
+チュートリアル: `docs/tutorial_trace_analysis.md`
+
 ## Examples / サンプル 📚
 
 - `examples/tracing_basic.py`
+- `examples/search_sqlite.py`
 
 ## 環境変数 🔐
 

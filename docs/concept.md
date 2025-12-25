@@ -25,6 +25,7 @@
 | F6 | フォールバック | `providers=[...]` で利用可能なものを順に試す | F4, F5 | ◯ | 0.1（MVP+） |
 | F7 | 任意設定ファイル | `provider.json` 等で base_url/api_key を定義できる | F4 | ✗ | 将来 |
 | F8 | Tracing / Tracer | `with trace` と `get_llm(..., tracer=...)` でスパンを記録する（Agents SDK互換） | F1 | ✅ | 0.2 |
+| F9 | Trace検索サービス | Trace/Spanを検索・抽出する共通I/Fを提供する | F8 | ◯ | 0.3 |
 
 ## フェーズ分け
 
@@ -47,6 +48,13 @@
   - `kantan_llm.tracing.trace(...)`（OpenAI Agents SDK互換I/F）
   - `get_llm(..., tracer=...)` でLLM呼び出しをスパンとして記録
   - Tracer実装: PrintTracer / SQLiteTracer / OTELTracer
+
+### Phase 0.3（検索サービス）
+
+- F9 を実装する
+  - Trace/Spanの検索I/Fを提供する（SQLite/OTEL共通）
+  - 評価スコア抽出やtool call有無などの検索をサポート
+  - 既存Traceに追加されたSpanの差分取得をサポート
 
 ## 合意済み（F8: PrintTracerのデフォルト）
 
