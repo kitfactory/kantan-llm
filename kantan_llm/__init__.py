@@ -18,7 +18,7 @@ import os
 
 from .providers import infer_provider_from_model, normalize_providers, resolve_provider_config, split_model_prefix
 from .wrappers import KantanLLM
-from .tracing import NoOpTracer, PrintTracer
+from .tracing import NoOpTracer, PrintTracer, get_trace_provider
 from .tracing.setup import set_trace_processors
 
 __all__ = [
@@ -69,12 +69,18 @@ def get_llm(
 
     # Japanese/English: Tracerを設定する（デフォルトはPrintTracer） / Configure tracer (default: PrintTracer)
     if tracer is _TRACER_UNSET:
-        tracer = PrintTracer()
+        existing = get_trace_provider().get_processors()
+        if not existing:
+            tracer = PrintTracer()
+        else:
+            tracer = _TRACER_SKIP
     elif tracer is None:
         tracer = NoOpTracer()
-    if not _is_tracing_processor(tracer):
-        raise InvalidTracerError(tracer)
-    set_trace_processors([tracer])
+
+    if tracer is not _TRACER_SKIP:
+        if not _is_tracing_processor(tracer):
+            raise InvalidTracerError(tracer)
+        set_trace_processors([tracer])
 
     prefixed_provider, bare_model = split_model_prefix(model.strip())
 
@@ -172,3 +178,4 @@ def _is_tracing_processor(obj: object) -> bool:
 
 
 _TRACER_UNSET = object()
+_TRACER_SKIP = object()

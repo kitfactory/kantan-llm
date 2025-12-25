@@ -35,7 +35,13 @@ class GenerationSpanData(SpanData):
     input: Any | None = None
     output: Any | None = None
     model: str | None = None
+    usage: dict[str, Any] | None = None
 
     def export(self) -> dict[str, Any]:
-        return {"type": "generation", "input": self.input, "output": self.output, "model": self.model}
-
+        return {
+            "type": "generation",
+            "input": self.input,
+            "output": self.output,
+            "model": self.model,
+            "usage": self.usage,
+        }

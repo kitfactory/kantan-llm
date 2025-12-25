@@ -158,6 +158,7 @@ def _run_with_generation_span(
         output_text = sanitize_text(dump_for_tracing(_extract_output(api_kind=api_kind, response=result)))
         if isinstance(span.span_data, GenerationSpanData):
             span.span_data.output = output_text
+            span.span_data.usage = _extract_usage(api_kind=api_kind, response=result)
         return result
 
 
@@ -211,6 +212,21 @@ def _extract_output(*, api_kind: str, response: Any) -> Any:
         pass
 
     return response
+
+
+def _extract_usage(*, api_kind: str, response: Any) -> dict[str, Any] | None:
+    usage = getattr(response, "usage", None)
+    if isinstance(usage, dict):
+        return usage
+    if usage is not None:
+        try:
+            return usage.model_dump()  # type: ignore[attr-defined]
+        except Exception:
+            try:
+                return dict(usage)
+            except Exception:
+                return None
+    return None
 
 
 def _normalize_tool_calls(tool_calls: Any) -> Any:

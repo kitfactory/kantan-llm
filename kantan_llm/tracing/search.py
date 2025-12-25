@@ -55,6 +55,7 @@ class SpanRecord:
     input: str | None
     output: str | None
     rubric: dict[str, Any] | None
+    usage: dict[str, Any] | None
     error: dict[str, Any] | None
     raw: dict[str, Any] | None
 

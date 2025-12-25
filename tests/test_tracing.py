@@ -6,7 +6,7 @@ from typing import Any
 import pytest
 
 import kantan_llm
-from kantan_llm.tracing import get_trace_provider, trace
+from kantan_llm.tracing import get_trace_provider, set_trace_processors, trace
 from kantan_llm.tracing.processors import NoOpTracer, PrintTracer
 from kantan_llm.tracing.processor_interface import TracingProcessor
 
@@ -137,6 +137,7 @@ def test_tracer_none_uses_noop_tracer(monkeypatch):
     monkeypatch.setenv("OPENAI_API_KEY", "sk-test-1234567890")
     _patch_openai(monkeypatch, responses_text="ok")
 
+    set_trace_processors([])
     llm = kantan_llm.get_llm("gpt-4.1-mini", tracer=None)
     _ = llm.responses.create(input="hello")
 
@@ -149,9 +150,25 @@ def test_tracer_default_uses_print_tracer(monkeypatch):
     monkeypatch.setenv("OPENAI_API_KEY", "sk-test-1234567890")
     _patch_openai(monkeypatch, responses_text="ok")
 
+    set_trace_processors([])
     llm = kantan_llm.get_llm("gpt-4.1-mini")
     _ = llm.responses.create(input="hello")
 
     processors = get_trace_provider().get_processors()
     assert len(processors) == 1
     assert isinstance(processors[0], PrintTracer)
+
+
+def test_tracer_unset_preserves_existing_processors(monkeypatch):
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test-1234567890")
+    _patch_openai(monkeypatch, responses_text="ok")
+
+    existing = RecordingTracer()
+    set_trace_processors([existing])
+
+    llm = kantan_llm.get_llm("gpt-4.1-mini")
+    _ = llm.responses.create(input="hello")
+
+    processors = get_trace_provider().get_processors()
+    assert len(processors) == 1
+    assert processors[0] is existing

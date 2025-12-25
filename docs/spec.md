@@ -252,6 +252,13 @@
 - And: 出力テキストが無い場合、構造化出力（structured output）を記録する
 - And: さらに無い場合、function calling（tool call）の内容を記録する
 
+### 7.9 usage を記録する（F8）
+
+- Given: LLM呼び出しの応答に usage 情報が含まれる
+- When: Spanを記録する
+- Then: Spanの `usage` に best-effort で記録する
+- And: Trace側に合計usageをキャッシュしてもよい（任意、正本はSpan）
+
 ## 8. Trace検索サービス（F9）
 
 本章は Trace/Span を検索・抽出する共通I/Fを定義する。

@@ -78,12 +78,13 @@ def generation_span(
     input: Sequence[Mapping[str, Any]] | str | None = None,
     output: Any | None = None,
     model: str | None = None,
+    usage: dict[str, Any] | None = None,
     span_id: str | None = None,
     parent: Trace | Span[Any] | None = None,
     disabled: bool = False,
 ) -> Span[GenerationSpanData]:
     return get_trace_provider().create_span(
-        span_data=GenerationSpanData(input=input, output=output, model=model),
+        span_data=GenerationSpanData(input=input, output=output, model=model, usage=usage),
         span_id=span_id,
         parent=parent,
         disabled=disabled,

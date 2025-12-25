@@ -22,7 +22,12 @@ def _setup_tracer(tmp_path) -> SQLiteTracer:
 
 def _record_sample() -> str:
     with trace("workflow") as t:
-        with generation_span(input="hello world", output="ok", model="gpt-4"):
+        with generation_span(
+            input="hello world",
+            output="ok",
+            model="gpt-4",
+            usage={"input_tokens": 3, "output_tokens": 2, "total_tokens": 5},
+        ):
             pass
         with function_span(name="tool_a", input="in", output="out"):
             pass
@@ -57,6 +62,26 @@ def test_search_spans_by_name_and_rubric(tmp_path):
     assert any(r.rubric["score"] == 0.2 for r in auto_rubric)
 
 
+def test_usage_recorded_in_span_and_trace(tmp_path):
+    tracer = _setup_tracer(tmp_path)
+
+    with trace("usage") as t:
+        with generation_span(
+            input="hello",
+            output="ok",
+            model="gpt-4",
+            usage={"input_tokens": 1, "output_tokens": 2, "total_tokens": 3},
+        ):
+            pass
+
+    spans = tracer.get_spans_by_trace(t.trace_id)
+    assert spans
+    assert spans[0].usage["total_tokens"] == 3
+    trace_record = tracer.get_trace(t.trace_id)
+    assert trace_record is not None
+    assert trace_record.metadata["usage_total"]["total_tokens"] == 3
+
+
 def test_search_traces_keywords_and_tool_call(tmp_path):
     tracer = _setup_tracer(tmp_path)
     trace_id = _record_sample()
@@ -66,6 +91,19 @@ def test_search_traces_keywords_and_tool_call(tmp_path):
 
     traces = tracer.search_traces(query=TraceQuery(has_tool_call=True))
     assert [t.trace_id for t in traces] == [trace_id]
+
+
+def test_search_traces_metadata_query(tmp_path):
+    tracer = _setup_tracer(tmp_path)
+    with trace("meta", metadata={"env": "dev", "run": 1, "flag": True}) as t:
+        with generation_span(input="hello", output="ok", model="gpt-4"):
+            pass
+
+    traces = tracer.search_traces(query=TraceQuery(metadata={"env": "dev"}))
+    assert [tr.trace_id for tr in traces] == [t.trace_id]
+
+    traces = tracer.search_traces(query=TraceQuery(metadata={"run": 2}))
+    assert traces == []
 
 
 def test_get_spans_since_order_and_exclusive(tmp_path):

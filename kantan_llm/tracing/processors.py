@@ -109,12 +109,15 @@ class SQLiteTracer(TracingProcessor):
     def __init__(self, path: str = "kantan_llm_traces.sqlite3") -> None:
         self._path = path
         self._conn: sqlite3.Connection | None = None
+        self._supports_json1: bool | None = None
         self.default_tz = datetime.now().astimezone().tzinfo or timezone.utc
 
     def _ensure_conn(self) -> sqlite3.Connection:
         if self._conn is None:
             self._conn = sqlite3.connect(self._path)
             self._conn.row_factory = sqlite3.Row
+            if self._supports_json1 is None:
+                self._supports_json1 = _detect_json1(self._conn)
             self._conn.execute(
                 """
                 CREATE TABLE IF NOT EXISTS traces (
@@ -125,6 +128,7 @@ class SQLiteTracer(TracingProcessor):
                 )
                 """
             )
+            self._ensure_columns_traces()
             self._conn.execute(
                 """
                 CREATE TABLE IF NOT EXISTS spans (
@@ -148,6 +152,15 @@ class SQLiteTracer(TracingProcessor):
             self._conn.commit()
         return self._conn
 
+    def _ensure_columns_traces(self) -> None:
+        conn = self._conn
+        if conn is None:
+            return
+        cols = {row["name"] for row in conn.execute("PRAGMA table_info(traces)").fetchall()}
+        if "metadata_json" not in cols:
+            conn.execute("ALTER TABLE traces ADD COLUMN metadata_json TEXT")
+        conn.commit()
+
     def _ensure_columns(self) -> None:
         conn = self._conn
         if conn is None:
@@ -159,6 +172,8 @@ class SQLiteTracer(TracingProcessor):
             conn.execute("ALTER TABLE spans ADD COLUMN ingest_seq INTEGER")
         if "rubric_json" not in cols:
             conn.execute("ALTER TABLE spans ADD COLUMN rubric_json TEXT")
+        if "usage_json" not in cols:
+            conn.execute("ALTER TABLE spans ADD COLUMN usage_json TEXT")
         conn.commit()
 
     def _upsert_trace(self, trace) -> None:
@@ -174,6 +189,22 @@ class SQLiteTracer(TracingProcessor):
                 exported.get("group_id"),
                 json.dumps(exported.get("metadata"), ensure_ascii=False, default=str),
             ),
+        )
+
+    def _update_trace_usage_cache(self, trace_id: str, usage: dict[str, Any]) -> None:
+        conn = self._ensure_conn()
+        row = conn.execute("SELECT metadata_json FROM traces WHERE id = ?", (trace_id,)).fetchone()
+        metadata = _json_or_none(row["metadata_json"]) if row else None
+        if metadata is None:
+            metadata = {}
+        usage_total = metadata.get("usage_total") or {}
+        for key, value in usage.items():
+            if isinstance(value, (int, float)):
+                usage_total[key] = usage_total.get(key, 0) + value
+        metadata["usage_total"] = usage_total
+        conn.execute(
+            "UPDATE traces SET metadata_json = ? WHERE id = ?",
+            (json.dumps(metadata, ensure_ascii=False, default=str), trace_id),
         )
 
     def on_trace_start(self, trace) -> None:
@@ -200,9 +231,11 @@ class SQLiteTracer(TracingProcessor):
         self._upsert_trace(getattr(span, "_trace", None) or _TraceLike(trace_id=trace_id))
 
         span_data = exported.get("span_data") or {}
+        span_usage = exported.get("usage")
         raw_in = span_data.get("input")
         raw_out = span_data.get("output")
         span_name = span_data.get("name")
+        usage = span_usage or _extract_usage(span_data)
 
         input_text = sanitize_text(_to_text(raw_in)) if raw_in is not None else None
         output_text = sanitize_text(_to_text(raw_out)) if raw_out is not None else None
@@ -212,8 +245,11 @@ class SQLiteTracer(TracingProcessor):
         conn.execute(
             """
             INSERT OR REPLACE INTO spans(
-              id, trace_id, parent_id, started_at, ended_at, span_type, name, ingest_seq, input, output, rubric_json, error_json, raw_json
-            ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)
+              id, trace_id, parent_id, started_at, ended_at, span_type, name, ingest_seq, input, output, rubric_json, usage_json, error_json, raw_json
+            ) VALUES(
+              ?, ?, ?, ?, ?, ?, ?, (SELECT COALESCE(MAX(ingest_seq), 0) + 1 FROM spans WHERE trace_id = ?),
+              ?, ?, ?, ?, ?, ?
+            )
             """,
             (
                 exported.get("id") or getattr(span, "span_id", None),
@@ -223,30 +259,37 @@ class SQLiteTracer(TracingProcessor):
                 exported.get("ended_at"),
                 span_data.get("type"),
                 span_name,
-                _next_ingest_seq(conn, trace_id),
+                trace_id,
                 input_text,
                 output_text,
                 json.dumps(rubric, ensure_ascii=False, default=str) if rubric is not None else None,
+                json.dumps(usage, ensure_ascii=False, default=str) if usage is not None else None,
                 json.dumps(exported.get("error"), ensure_ascii=False, default=str),
                 json.dumps(exported, ensure_ascii=False, default=str),
             ),
         )
         conn.commit()
+        if usage:
+            self._update_trace_usage_cache(trace_id, usage)
 
     def capabilities(self) -> TraceSearchCapabilities:
         return TraceSearchCapabilities(
             supports_keywords=True,
             supports_has_tool_call=True,
-            supports_metadata_query=False,
+            supports_metadata_query=bool(self._supports_json1),
             supports_limit=True,
             supports_since=True,
         )
 
     def search_traces(self, *, query: TraceQuery) -> list[TraceRecord]:
         conn = self._ensure_conn()
-        if query.metadata:
-            raise NotSupportedError("metadata query")
         where, params = _build_trace_where(query, self.default_tz)
+        if query.metadata:
+            if not self._supports_json1:
+                raise NotSupportedError("metadata query")
+            meta_where, meta_params = _build_metadata_where(query.metadata)
+            where.extend(meta_where)
+            params.extend(meta_params)
         sql = "SELECT id, workflow_name, group_id, metadata_json FROM traces"
         if where:
             sql += " WHERE " + " AND ".join(where)
@@ -276,7 +319,7 @@ class SQLiteTracer(TracingProcessor):
         where, params = _build_span_where(query, self.default_tz)
         sql = (
             "SELECT id, trace_id, parent_id, span_type, name, started_at, ended_at, "
-            "COALESCE(ingest_seq, 0) AS ingest_seq, input, output, rubric_json, error_json, raw_json "
+            "COALESCE(ingest_seq, 0) AS ingest_seq, input, output, rubric_json, usage_json, error_json, raw_json "
             "FROM spans"
         )
         if where:
@@ -310,7 +353,7 @@ class SQLiteTracer(TracingProcessor):
         conn = self._ensure_conn()
         row = conn.execute(
             "SELECT id, trace_id, parent_id, span_type, name, started_at, ended_at, "
-            "COALESCE(ingest_seq, 0) AS ingest_seq, input, output, rubric_json, error_json, raw_json "
+            "COALESCE(ingest_seq, 0) AS ingest_seq, input, output, rubric_json, usage_json, error_json, raw_json "
             "FROM spans WHERE id = ?",
             (span_id,),
         ).fetchone()
@@ -322,7 +365,7 @@ class SQLiteTracer(TracingProcessor):
         conn = self._ensure_conn()
         rows = conn.execute(
             "SELECT id, trace_id, parent_id, span_type, name, started_at, ended_at, "
-            "COALESCE(ingest_seq, 0) AS ingest_seq, input, output, rubric_json, error_json, raw_json "
+            "COALESCE(ingest_seq, 0) AS ingest_seq, input, output, rubric_json, usage_json, error_json, raw_json "
             "FROM spans WHERE trace_id = ? ORDER BY ingest_seq ASC",
             (trace_id,),
         ).fetchall()
@@ -333,7 +376,7 @@ class SQLiteTracer(TracingProcessor):
         since_value = since_seq or 0
         rows = conn.execute(
             "SELECT id, trace_id, parent_id, span_type, name, started_at, ended_at, "
-            "COALESCE(ingest_seq, 0) AS ingest_seq, input, output, rubric_json, error_json, raw_json "
+            "COALESCE(ingest_seq, 0) AS ingest_seq, input, output, rubric_json, usage_json, error_json, raw_json "
             "FROM spans WHERE trace_id = ? AND COALESCE(ingest_seq, 0) > ? "
             "ORDER BY ingest_seq ASC",
             (trace_id, since_value),
@@ -359,15 +402,6 @@ class _TraceLike:
         return {"object": "trace", "id": self.trace_id, "workflow_name": self.name, "group_id": None, "metadata": None}
 
 
-def _next_ingest_seq(conn: sqlite3.Connection, trace_id: str) -> int:
-    row = conn.execute(
-        "SELECT MAX(COALESCE(ingest_seq, 0)) AS max_seq FROM spans WHERE trace_id = ?",
-        (trace_id,),
-    ).fetchone()
-    max_seq = row["max_seq"] if row and row["max_seq"] is not None else 0
-    return int(max_seq) + 1
-
-
 def _extract_rubric(span_data: dict[str, Any]) -> dict[str, Any] | None:
     if "rubric" in span_data and isinstance(span_data["rubric"], dict):
         return span_data["rubric"]
@@ -378,6 +412,13 @@ def _extract_rubric(span_data: dict[str, Any]) -> dict[str, Any] | None:
     rubric = _extract_rubric_from_output(output)
     if rubric is not None:
         return rubric
+    return None
+
+
+def _extract_usage(span_data: dict[str, Any]) -> dict[str, Any] | None:
+    usage = span_data.get("usage")
+    if isinstance(usage, dict):
+        return usage
     return None
 
 
@@ -503,6 +544,35 @@ def _build_trace_where(query: TraceQuery, default_tz) -> tuple[list[str], list[A
     return where, params
 
 
+def _build_metadata_where(metadata: dict[str, Any]) -> tuple[list[str], list[Any]]:
+    where: list[str] = []
+    params: list[Any] = []
+    for key, value in metadata.items():
+        path = f"$.{key}"
+        if value is None:
+            where.append("json_extract(metadata_json, ?) IS NULL")
+            params.append(path)
+            continue
+        if isinstance(value, bool):
+            where.append("json_extract(metadata_json, ?) = ?")
+            params.extend([path, 1 if value else 0])
+            continue
+        if isinstance(value, (int, float, str)):
+            where.append("json_extract(metadata_json, ?) = ?")
+            params.extend([path, value])
+            continue
+        raise NotSupportedError("metadata query (non-scalar)")
+    return where, params
+
+
+def _detect_json1(conn: sqlite3.Connection) -> bool:
+    try:
+        conn.execute("SELECT json_extract('{\"a\":1}', '$.a')").fetchone()
+    except sqlite3.OperationalError:
+        return False
+    return True
+
+
 def _build_span_where(query: SpanQuery, default_tz) -> tuple[list[str], list[Any]]:
     where: list[str] = []
     params: list[Any] = []
@@ -553,6 +623,7 @@ def _row_to_span_record(row: sqlite3.Row, query: SpanQuery | None, default_tz) -
         input=row["input"],
         output=row["output"],
         rubric=_json_or_none(row["rubric_json"]),
+        usage=_json_or_none(row["usage_json"]),
         error=_json_or_none(row["error_json"]),
         raw=_json_or_none(row["raw_json"]),
     )

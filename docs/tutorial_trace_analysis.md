@@ -9,6 +9,7 @@
 - **Trace**: 1つの処理や会話のまとまり（ワークフロー全体）です。
 - **Span**: Trace内の個々の処理（LLM呼び出し、tool呼び出し、評価など）です。
 - **属性**: Spanには `span_type`, `name`, `input`, `output`, `error`, `rubric` などの属性があります。
+- **usage**: 取得できる場合は tokens などの使用量が自動で記録されます（best-effort）。
 
 ### 1.1 LLM呼び出しは自動でSpanになります
 
@@ -176,7 +177,26 @@ with trace("workflow"):
         pass
 ```
 
-## 6. まとめ
+## 6. judgeループ（閾値未満→掘る→再評価）
+
+最短ステップで「評価→閾値未満→原因Traceを掘る」を行う例です。
+
+```python
+from kantan_llm.tracing import SpanQuery
+from kantan_llm.tracing.processors import SQLiteTracer
+
+tracer = SQLiteTracer("traces.sqlite3")
+
+judges = tracer.search_spans(query=SpanQuery(span_type="custom", name="judge", limit=200))
+failed = [s for s in judges if s.rubric and s.rubric.get("score", 1) < 0.6]
+
+for span in failed:
+    # 原因Traceの全Spanを取得して確認します
+    spans = tracer.get_spans_by_trace(span.trace_id)
+    print(span.trace_id, len(spans))
+```
+
+## 7. まとめ
 
 - 仕様の詳細: `docs/search.md`
 - サンプル: `examples/search_sqlite.py`

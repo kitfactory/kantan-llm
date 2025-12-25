@@ -1,4 +1,4 @@
-# kantan-llm plan（v0.3）
+# kantan-llm plan（v0.4）
 
 チェックしながら進める（Doneは `[x]`）。
 
@@ -34,6 +34,20 @@
 - [x] SQLite検索のサンプル/READMEを整備して使い勝手を確認
 - [x] 自動記録のドキュメント整備（tutorial/README）
 
-## Phase 0.4（OTEL/Tempo: F9）
+## Phase 0.4（観測→改善ループの強化 / SQLite正本）
 
+- [x] Scope方針/非ゴール/正本の明記（docs）
+- [x] SQLiteを正式な検索実装の一つとして位置づける（docs）
+- [x] usage をSpan正本として記録（best-effort）
+- [x] Trace合計usageをmetadataにキャッシュ（任意）
+- [x] 実API（OpenAI/LMStudio）で生成したトレースをSQLite検索APIで確認
+- [x] judgeループ（閾値未満抽出→掘る→再評価）をチュートリアルに追加
+- [x] get_llm() の tracer 上書き副作用を抑制（明示指定時のみ反映）
+- [x] ingest_seq の並行性を考慮した方式に寄せる
+- [x] SQLiteのmetadata検索（JSON1対応）とcapabilities/NotSupportedの整合
+
+## Phase 0.5（バックエンド差し替え / OTEL/会社DB）
+
+- [ ] capabilities() に基づき、未対応条件は NotSupportedError を返す
 - [ ] OTEL(Tempo)の検索連携を設計・実装
+- [ ] 会社DB（Postgres/SQLServer等）差し替え指針の整理
