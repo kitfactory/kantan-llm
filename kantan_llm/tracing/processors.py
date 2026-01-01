@@ -191,8 +191,7 @@ class SQLiteTracer(TracingProcessor):
             ),
         )
 
-    def _update_trace_usage_cache(self, trace_id: str, usage: dict[str, Any]) -> None:
-        conn = self._ensure_conn()
+    def _update_trace_usage_cache(self, conn: sqlite3.Connection, trace_id: str, usage: dict[str, Any]) -> None:
         row = conn.execute("SELECT metadata_json FROM traces WHERE id = ?", (trace_id,)).fetchone()
         metadata = _json_or_none(row["metadata_json"]) if row else None
         if metadata is None:
@@ -206,7 +205,6 @@ class SQLiteTracer(TracingProcessor):
             "UPDATE traces SET metadata_json = ? WHERE id = ?",
             (json.dumps(metadata, ensure_ascii=False, default=str), trace_id),
         )
-        conn.commit()
 
     def on_trace_start(self, trace) -> None:
         self._upsert_trace(trace)
@@ -228,9 +226,6 @@ class SQLiteTracer(TracingProcessor):
         if trace_id is None:
             return
 
-        # Ensure trace row exists even if we didn't see on_trace_start (interop). / trace startを見ていなくてもtrace行を作る。
-        self._upsert_trace(getattr(span, "_trace", None) or _TraceLike(trace_id=trace_id))
-
         span_data = exported.get("span_data") or {}
         span_usage = exported.get("usage")
         raw_in = span_data.get("input")
@@ -242,36 +237,43 @@ class SQLiteTracer(TracingProcessor):
         output_text = sanitize_text(_to_text(raw_out)) if raw_out is not None else None
         rubric = _extract_rubric(span_data)
 
+        if isinstance(usage, dict):
+            usage = _normalize_usage(usage)
+        else:
+            usage = None
+
         conn = self._ensure_conn()
-        conn.execute(
-            """
-            INSERT OR REPLACE INTO spans(
-              id, trace_id, parent_id, started_at, ended_at, span_type, name, ingest_seq, input, output, rubric_json, usage_json, error_json, raw_json
-            ) VALUES(
-              ?, ?, ?, ?, ?, ?, ?, (SELECT COALESCE(MAX(ingest_seq), 0) + 1 FROM spans WHERE trace_id = ?),
-              ?, ?, ?, ?, ?, ?
+        with conn:
+            # Ensure trace row exists even if we didn't see on_trace_start (interop). / trace startを見ていなくてもtrace行を作る。
+            self._upsert_trace(getattr(span, "_trace", None) or _TraceLike(trace_id=trace_id))
+            conn.execute(
+                """
+                INSERT OR REPLACE INTO spans(
+                  id, trace_id, parent_id, started_at, ended_at, span_type, name, ingest_seq, input, output, rubric_json, usage_json, error_json, raw_json
+                ) VALUES(
+                  ?, ?, ?, ?, ?, ?, ?, (SELECT COALESCE(MAX(ingest_seq), 0) + 1 FROM spans WHERE trace_id = ?),
+                  ?, ?, ?, ?, ?, ?
+                )
+                """,
+                (
+                    exported.get("id") or getattr(span, "span_id", None),
+                    trace_id,
+                    exported.get("parent_id"),
+                    exported.get("started_at"),
+                    exported.get("ended_at"),
+                    span_data.get("type"),
+                    span_name,
+                    trace_id,
+                    input_text,
+                    output_text,
+                    json.dumps(rubric, ensure_ascii=False, default=str) if rubric is not None else None,
+                    json.dumps(usage, ensure_ascii=False, default=str) if usage is not None else None,
+                    json.dumps(exported.get("error"), ensure_ascii=False, default=str),
+                    json.dumps(exported, ensure_ascii=False, default=str),
+                ),
             )
-            """,
-            (
-                exported.get("id") or getattr(span, "span_id", None),
-                trace_id,
-                exported.get("parent_id"),
-                exported.get("started_at"),
-                exported.get("ended_at"),
-                span_data.get("type"),
-                span_name,
-                trace_id,
-                input_text,
-                output_text,
-                json.dumps(rubric, ensure_ascii=False, default=str) if rubric is not None else None,
-                json.dumps(usage, ensure_ascii=False, default=str) if usage is not None else None,
-                json.dumps(exported.get("error"), ensure_ascii=False, default=str),
-                json.dumps(exported, ensure_ascii=False, default=str),
-            ),
-        )
-        conn.commit()
-        if usage:
-            self._update_trace_usage_cache(trace_id, usage)
+            if usage:
+                self._update_trace_usage_cache(conn, trace_id, usage)
 
     def capabilities(self) -> TraceSearchCapabilities:
         return TraceSearchCapabilities(
@@ -421,6 +423,36 @@ def _extract_usage(span_data: dict[str, Any]) -> dict[str, Any] | None:
     if isinstance(usage, dict):
         return usage
     return None
+
+
+def _normalize_usage(usage: dict[str, Any]) -> dict[str, Any]:
+    normalized = dict(usage)
+
+    def _num(value: Any) -> int | float | None:
+        if isinstance(value, (int, float)):
+            return value
+        return None
+
+    prompt_tokens = _num(normalized.get("prompt_tokens"))
+    completion_tokens = _num(normalized.get("completion_tokens"))
+    input_tokens = _num(normalized.get("input_tokens"))
+    output_tokens = _num(normalized.get("output_tokens"))
+
+    if input_tokens is None and prompt_tokens is not None:
+        normalized["input_tokens"] = prompt_tokens
+        input_tokens = prompt_tokens
+    if output_tokens is None and completion_tokens is not None:
+        normalized["output_tokens"] = completion_tokens
+        output_tokens = completion_tokens
+
+    total_tokens = _num(normalized.get("total_tokens"))
+    if total_tokens is None:
+        if input_tokens is not None and output_tokens is not None:
+            normalized["total_tokens"] = input_tokens + output_tokens
+        elif prompt_tokens is not None and completion_tokens is not None:
+            normalized["total_tokens"] = prompt_tokens + completion_tokens
+
+    return normalized
 
 
 def _extract_rubric_from_output(output: Any) -> dict[str, Any] | None:

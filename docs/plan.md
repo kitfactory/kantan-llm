@@ -51,3 +51,11 @@
 - [ ] capabilities() に基づき、未対応条件は NotSupportedError を返す
 - [ ] OTEL(Tempo)の検索連携を設計・実装
 - [ ] 会社DB（Postgres/SQLServer等）差し替え指針の整理
+
+## Phase 0.4+（SQLite正本の改善ループ強化: 最小）
+
+- [x] SQLiteTracerの on_span_end を単一トランザクション化
+- [x] usageの最小正規化（total_tokens/input_tokens/output_tokens）を追加
+- [x] ルーブリック検索ユーティリティ（find_failed_judges/group_failed_by_bucket）を追加
+- [x] テスト: transaction/usage正規化/ユーティリティ
+- [x] チュートリアルに最短例を追記

@@ -321,3 +321,57 @@
 - Given: `capabilities.supports_since=False`
 - When: `get_spans_since` を呼ぶ
 - Then: `NotSupportedError` を送出する
+
+## 9. SQLite正本の改善ループ強化（F10/F11）
+
+### 9.1 SQLiteTracerでSpanを記録した場合、Span挿入とusage_total更新は原子化される（F10）
+
+- Given: SQLiteTracer が有効
+- And: Spanの usage が取得できる
+- When: `on_span_end` が呼ばれる
+- Then: `spans` への INSERT/REPLACE と `traces.metadata_json` の usage_total 更新は同一トランザクションで実行される
+- And: commit は最後に1回だけ行われる
+- And: 途中で例外が起きた場合は rollback され、部分書き込みにならない
+
+### 9.2 usage を保存する場合、最小正規化ルールを適用する（F10）
+
+- Given: `usage` が dict として取得できる
+- When: Spanを保存する
+- Then: `usage_json` は best-effort で記録される
+- And: `input_tokens` が無く `prompt_tokens` があれば `input_tokens=prompt_tokens` を付与する
+- And: `output_tokens` が無く `completion_tokens` があれば `output_tokens=completion_tokens` を付与する
+- And: `total_tokens` が無い場合は `input_tokens + output_tokens` を優先し、無ければ `prompt_tokens + completion_tokens` を使う
+- And: 数値でない値は加算しない
+
+### 9.3 Traceの usage_total は正規化後のusageで合算される（F10）
+
+- Given: Spanの usage が正規化された
+- When: `usage_total` を更新する
+- Then: 正規化後の数値のみを合算して保持する
+
+### 9.4 `find_failed_judges` を使った場合、閾値未満のjudgeのみ返す（F11）
+
+- Given: `TraceSearchService` が利用可能
+- When: `find_failed_judges(service, threshold, ...)` を呼ぶ
+- Then: `span_type="custom"` かつ `name="judge"` の Span だけを対象とする
+- And: `rubric.score < threshold` の Span のみを返す
+
+### 9.5 `trace_query` を指定した場合、対象Traceに限定してjudgeを抽出する（F11）
+
+- Given: `trace_query` が指定されている
+- When: `find_failed_judges` を呼ぶ
+- Then: 先に `search_traces(trace_query)` で trace_id を絞り、その範囲だけを検索する
+
+### 9.6 capabilitiesで未対応の条件がある場合、NotSupportedErrorを返す（F11）
+
+- Given: `capabilities()` が条件に対して未対応を返す
+- When: `find_failed_judges` がその条件を利用する
+- Then: `NotSupportedError` を送出する
+
+### 9.7 `group_failed_by_bucket` を使った場合、最小ルールでグルーピングする（F11）
+
+- Given: failed な judge Span の一覧がある
+- When: `group_failed_by_bucket(spans)` を呼ぶ
+- Then: `rubric.tags[0]` があればそれを bucket として使う
+- And: 無ければ `rubric.comment` の先頭トークンを使う
+- And: それも無ければ `"other"` を使う

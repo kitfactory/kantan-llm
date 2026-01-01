@@ -196,6 +196,20 @@ for span in failed:
     print(span.trace_id, len(spans))
 ```
 
+### 6.1 ユーティリティで閾値未満を抽出する（最短）
+
+SQLを書かずに judge の閾値未満を抽出し、バケットでまとめます。
+
+```python
+from kantan_llm.tracing.analysis import find_failed_judges, group_failed_by_bucket
+from kantan_llm.tracing.processors import SQLiteTracer
+
+tracer = SQLiteTracer("traces.sqlite3")
+failed = find_failed_judges(tracer, threshold=0.6, limit=200)
+grouped = group_failed_by_bucket(failed)
+print({k: len(v) for k, v in grouped.items()})
+```
+
 ## 7. まとめ
 
 - 仕様の詳細: `docs/search.md`

@@ -39,6 +39,8 @@
 | F7 | 任意設定ファイル | `provider.json` 等で base_url/api_key を定義できる | F4 | ✗ | 将来 |
 | F8 | Tracing / Tracer | `with trace` と `get_llm(..., tracer=...)` でスパンを記録する（Agents SDK互換） | F1 | ✅ | 0.2 |
 | F9 | Trace検索サービス | Trace/Spanを検索・抽出する共通I/Fを提供する | F8 | ◯ | 0.3 |
+| F10 | SQLite正本の改善ループ強化（最小） | SQLiteTracer の原子性・usage正規化を改善する | F8, F9 | ◯ | 0.4+ |
+| F11 | ルーブリック検索ユーティリティ | search I/F を使った失敗抽出/バケット分けを補助する | F9 | ◯ | 0.4+ |
 
 ## フェーズ分け
 
@@ -73,6 +75,12 @@
 
 - SQLiteを正本とし、観測→検索→評価→改善の導線を整備する
 - usageの正本記録（Span）と、Trace合計のキャッシュ（任意）を追加する
+
+### Phase 0.4+（SQLite正本の改善ループ強化: 最小）
+
+- SQLiteTracer の書き込みを原子化して「部分書き込み」を防ぐ
+- usageキーの揺れを最小正規化し、total_tokens を安定させる
+- SQLなしで閾値未満のjudgeを拾うユーティリティを追加する
 
 ## 合意済み（F8: PrintTracerのデフォルト）
 

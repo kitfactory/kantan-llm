@@ -11,6 +11,7 @@ from kantan_llm.tracing import (
     set_trace_processors,
     trace,
 )
+from kantan_llm.tracing.analysis import find_failed_judges, group_failed_by_bucket
 from kantan_llm.tracing.processors import SQLiteTracer
 
 
@@ -89,6 +90,29 @@ def test_usage_recorded_in_span_and_trace(tmp_path):
     assert trace_record.metadata["usage_total"]["total_tokens"] == 6
 
 
+def test_usage_normalization_minimal(tmp_path):
+    tracer = _setup_tracer(tmp_path)
+
+    with trace("usage-normalize") as t:
+        with generation_span(
+            input="hello",
+            output="ok",
+            model="gpt-4",
+            usage={"prompt_tokens": 1, "completion_tokens": 2},
+        ):
+            pass
+
+    spans = tracer.get_spans_by_trace(t.trace_id)
+    assert spans
+    usage = spans[0].usage
+    assert usage["input_tokens"] == 1
+    assert usage["output_tokens"] == 2
+    assert usage["total_tokens"] == 3
+    trace_record = tracer.get_trace(t.trace_id)
+    assert trace_record is not None
+    assert trace_record.metadata["usage_total"]["total_tokens"] == 3
+
+
 def test_search_traces_keywords_and_tool_call(tmp_path):
     tracer = _setup_tracer(tmp_path)
     trace_id = _record_sample()
@@ -124,6 +148,48 @@ def test_get_spans_since_order_and_exclusive(tmp_path):
     newer = tracer.get_spans_since(trace_id, since_seq=first_seq)
     assert all(s.ingest_seq > first_seq for s in newer)
     assert [s.ingest_seq for s in newer] == sorted([s.ingest_seq for s in newer])
+
+
+def test_span_insert_atomic_when_usage_update_fails(tmp_path):
+    class BrokenSQLiteTracer(SQLiteTracer):
+        def _update_trace_usage_cache(self, conn, trace_id, usage):
+            raise RuntimeError("boom")
+
+    tracer = BrokenSQLiteTracer(str(tmp_path / "traces.sqlite3"))
+    set_trace_processors([tracer])
+
+    with trace("atomic") as t:
+        with generation_span(
+            input="hello",
+            output="ok",
+            model="gpt-4",
+            usage={"input_tokens": 1, "output_tokens": 2, "total_tokens": 3},
+        ):
+            pass
+
+    spans = tracer.get_spans_by_trace(t.trace_id)
+    assert spans == []
+    trace_record = tracer.get_trace(t.trace_id)
+    assert trace_record is not None
+    assert not trace_record.metadata or "usage_total" not in trace_record.metadata
+
+
+def test_find_failed_judges_and_grouping(tmp_path):
+    tracer = _setup_tracer(tmp_path)
+    with trace("judge") as t:
+        with custom_span(name="judge", data={"rubric": {"score": 0.7, "comment": "good", "tags": ["ok"]}}):
+            pass
+        with custom_span(name="judge", data={"rubric": {"score": 0.4, "comment": "bad output"}}):
+            pass
+        with custom_span(name="judge", data={"rubric": {"score": 0.3}}):
+            pass
+
+    failed = find_failed_judges(tracer, threshold=0.6, limit=10, trace_query=TraceQuery(trace_id=t.trace_id))
+    assert all(s.rubric and s.rubric.get("score", 1) < 0.6 for s in failed)
+
+    grouped = group_failed_by_bucket(failed)
+    assert "bad" in grouped
+    assert "other" in grouped
 
 
 def test_time_return_naive_or_aware(tmp_path):

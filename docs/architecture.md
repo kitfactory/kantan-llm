@@ -15,9 +15,11 @@
   - `kantan_llm.tracing.trace(...)` とカレントTrace管理（contextvars）を提供する
   - LLM呼び出しをSpanとして構造化し、Tracer（Processor）へ通知する
   - Tracer実装（Print/SQLite/OTEL）を提供する（外部SDKに必須依存しない）
+  - SQLiteTracerはSpan挿入とusage_total更新を原子化し、usageは最小正規化する（F10）
 - Search layer（F9）
   - Trace/Spanの検索I/Fを提供する（SQLite/OTEL共通）
   - 特定Span/Trace、評価スコア、tool_call有無などの検索を抽象化する
+  - ルーブリック検索の補助ユーティリティは Search I/F のみを利用する（F11）
 
 依存方向: Public API → Provider → Wrapper → Tracing（逆依存はしない）
 
@@ -87,6 +89,27 @@ class TraceSearchService(Protocol):
     def get_spans_by_trace(self, trace_id: str) -> Sequence["SpanRecord"]: ...
     def get_spans_since(self, trace_id: str, since_seq: int | None = None) -> Sequence["SpanRecord"]: ...
     def capabilities(self) -> "TraceSearchCapabilities": ...
+```
+
+### 2.5 Analysis Utilities（最小ユーティリティ）
+
+Search I/F のみを利用し、API面の追加はユーティリティに留める。
+
+```python
+from typing import Sequence
+
+
+def find_failed_judges(
+    service: "TraceSearchService",
+    threshold: float,
+    limit: int = 200,
+    trace_query: "TraceQuery | None" = None,
+) -> list["SpanRecord"]:
+    ...
+
+
+def group_failed_by_bucket(spans: Sequence["SpanRecord"]) -> dict[str, list["SpanRecord"]]:
+    ...
 ```
 
 ## 3. ログ/エラー方針
