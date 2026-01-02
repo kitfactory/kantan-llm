@@ -59,11 +59,12 @@ class PrintTracer(TracingProcessor):
 
         raw_in = data.get("input")
         raw_out = data.get("output")
+        output_kind, _, _, _ = _extract_output_parts(data)
 
         if raw_in is not None:
             self._write_block("INPUT:", _to_text(raw_in), self._C_IN)
         if raw_out is not None:
-            self._write_block("OUTPUT:", _to_text(raw_out), self._C_OUT)
+            self._write_block(_output_label(output_kind), _to_text(raw_out), self._C_OUT)
 
     def shutdown(self) -> None:
         return
@@ -142,6 +143,9 @@ class SQLiteTracer(TracingProcessor):
                   ingest_seq INTEGER,
                   input TEXT,
                   output TEXT,
+                  output_kind TEXT,
+                  tool_calls_json TEXT,
+                  structured_json TEXT,
                   rubric_json TEXT,
                   error_json TEXT,
                   raw_json TEXT
@@ -174,6 +178,12 @@ class SQLiteTracer(TracingProcessor):
             conn.execute("ALTER TABLE spans ADD COLUMN rubric_json TEXT")
         if "usage_json" not in cols:
             conn.execute("ALTER TABLE spans ADD COLUMN usage_json TEXT")
+        if "output_kind" not in cols:
+            conn.execute("ALTER TABLE spans ADD COLUMN output_kind TEXT")
+        if "tool_calls_json" not in cols:
+            conn.execute("ALTER TABLE spans ADD COLUMN tool_calls_json TEXT")
+        if "structured_json" not in cols:
+            conn.execute("ALTER TABLE spans ADD COLUMN structured_json TEXT")
         conn.commit()
 
     def _upsert_trace(self, trace) -> None:
@@ -229,13 +239,13 @@ class SQLiteTracer(TracingProcessor):
         span_data = exported.get("span_data") or {}
         span_usage = exported.get("usage")
         raw_in = span_data.get("input")
-        raw_out = span_data.get("output")
+        raw_out = span_data.get("output_raw", span_data.get("output"))
         span_name = span_data.get("name")
         usage = span_usage or _extract_usage(span_data)
 
         input_text = sanitize_text(_to_text(raw_in)) if raw_in is not None else None
-        output_text = sanitize_text(_to_text(raw_out)) if raw_out is not None else None
-        rubric = _extract_rubric(span_data)
+        output_text = sanitize_text(_to_text(span_data.get("output"))) if span_data.get("output") is not None else None
+        output_kind, tool_calls, structured, rubric = _extract_output_parts(span_data, raw_out)
 
         if isinstance(usage, dict):
             usage = _normalize_usage(usage)
@@ -249,10 +259,11 @@ class SQLiteTracer(TracingProcessor):
             conn.execute(
                 """
                 INSERT OR REPLACE INTO spans(
-                  id, trace_id, parent_id, started_at, ended_at, span_type, name, ingest_seq, input, output, rubric_json, usage_json, error_json, raw_json
+                  id, trace_id, parent_id, started_at, ended_at, span_type, name, ingest_seq, input, output,
+                  output_kind, tool_calls_json, structured_json, rubric_json, usage_json, error_json, raw_json
                 ) VALUES(
                   ?, ?, ?, ?, ?, ?, ?, (SELECT COALESCE(MAX(ingest_seq), 0) + 1 FROM spans WHERE trace_id = ?),
-                  ?, ?, ?, ?, ?, ?
+                  ?, ?, ?, ?, ?, ?, ?, ?, ?
                 )
                 """,
                 (
@@ -266,6 +277,9 @@ class SQLiteTracer(TracingProcessor):
                     trace_id,
                     input_text,
                     output_text,
+                    output_kind,
+                    json.dumps(tool_calls, ensure_ascii=False, default=str) if tool_calls is not None else None,
+                    json.dumps(structured, ensure_ascii=False, default=str) if structured is not None else None,
                     json.dumps(rubric, ensure_ascii=False, default=str) if rubric is not None else None,
                     json.dumps(usage, ensure_ascii=False, default=str) if usage is not None else None,
                     json.dumps(exported.get("error"), ensure_ascii=False, default=str),
@@ -322,7 +336,8 @@ class SQLiteTracer(TracingProcessor):
         where, params = _build_span_where(query, self.default_tz)
         sql = (
             "SELECT id, trace_id, parent_id, span_type, name, started_at, ended_at, "
-            "COALESCE(ingest_seq, 0) AS ingest_seq, input, output, rubric_json, usage_json, error_json, raw_json "
+            "COALESCE(ingest_seq, 0) AS ingest_seq, input, output, output_kind, tool_calls_json, structured_json, "
+            "rubric_json, usage_json, error_json, raw_json "
             "FROM spans"
         )
         if where:
@@ -356,7 +371,8 @@ class SQLiteTracer(TracingProcessor):
         conn = self._ensure_conn()
         row = conn.execute(
             "SELECT id, trace_id, parent_id, span_type, name, started_at, ended_at, "
-            "COALESCE(ingest_seq, 0) AS ingest_seq, input, output, rubric_json, usage_json, error_json, raw_json "
+            "COALESCE(ingest_seq, 0) AS ingest_seq, input, output, output_kind, tool_calls_json, structured_json, "
+            "rubric_json, usage_json, error_json, raw_json "
             "FROM spans WHERE id = ?",
             (span_id,),
         ).fetchone()
@@ -368,7 +384,8 @@ class SQLiteTracer(TracingProcessor):
         conn = self._ensure_conn()
         rows = conn.execute(
             "SELECT id, trace_id, parent_id, span_type, name, started_at, ended_at, "
-            "COALESCE(ingest_seq, 0) AS ingest_seq, input, output, rubric_json, usage_json, error_json, raw_json "
+            "COALESCE(ingest_seq, 0) AS ingest_seq, input, output, output_kind, tool_calls_json, structured_json, "
+            "rubric_json, usage_json, error_json, raw_json "
             "FROM spans WHERE trace_id = ? ORDER BY ingest_seq ASC",
             (trace_id,),
         ).fetchall()
@@ -379,7 +396,8 @@ class SQLiteTracer(TracingProcessor):
         since_value = since_seq or 0
         rows = conn.execute(
             "SELECT id, trace_id, parent_id, span_type, name, started_at, ended_at, "
-            "COALESCE(ingest_seq, 0) AS ingest_seq, input, output, rubric_json, usage_json, error_json, raw_json "
+            "COALESCE(ingest_seq, 0) AS ingest_seq, input, output, output_kind, tool_calls_json, structured_json, "
+            "rubric_json, usage_json, error_json, raw_json "
             "FROM spans WHERE trace_id = ? AND COALESCE(ingest_seq, 0) > ? "
             "ORDER BY ingest_seq ASC",
             (trace_id, since_value),
@@ -405,16 +423,126 @@ class _TraceLike:
         return {"object": "trace", "id": self.trace_id, "workflow_name": self.name, "group_id": None, "metadata": None}
 
 
-def _extract_rubric(span_data: dict[str, Any]) -> dict[str, Any] | None:
+def _output_label(output_kind: str | None) -> str:
+    if output_kind == "text":
+        return "OUTPUT(text):"
+    if output_kind == "tool_calls":
+        return "TOOL_CALLS:"
+    if output_kind == "structured":
+        return "STRUCTURED:"
+    if output_kind == "rubric":
+        return "RUBRIC:"
+    return "OUTPUT:"
+
+
+def _extract_output_parts(
+    span_data: dict[str, Any],
+    raw_out: Any | None = None,
+) -> tuple[str | None, list[dict[str, Any]] | None, Any | None, dict[str, Any] | None]:
+    output_value = raw_out if raw_out is not None else span_data.get("output")
+    rubric = _extract_rubric(span_data, output_value)
+    tool_calls = _extract_tool_calls(output_value)
+    structured = _extract_structured_output(output_value, tool_calls)
+
+    output_kind = None
+    if rubric is not None:
+        output_kind = "rubric"
+    elif tool_calls is not None:
+        output_kind = "tool_calls"
+    elif structured is not None:
+        output_kind = "structured"
+    elif output_value is not None:
+        output_kind = "text"
+
+    return output_kind, tool_calls, structured, rubric
+
+
+def _extract_rubric(span_data: dict[str, Any], output: Any | None = None) -> dict[str, Any] | None:
     if "rubric" in span_data and isinstance(span_data["rubric"], dict):
         return span_data["rubric"]
     data = span_data.get("data")
     if isinstance(data, dict) and isinstance(data.get("rubric"), dict):
         return data["rubric"]
-    output = span_data.get("output")
     rubric = _extract_rubric_from_output(output)
     if rubric is not None:
         return rubric
+    return None
+
+
+def _extract_tool_calls(output: Any) -> list[dict[str, Any]] | None:
+    if output is None:
+        return None
+    if isinstance(output, dict):
+        tool_calls = output.get("tool_calls")
+        if isinstance(tool_calls, (list, tuple)):
+            return _normalize_tool_calls(tool_calls)
+        item_type = output.get("type")
+        if item_type in {"tool_call", "function_call", "tool"} or "function_call" in output:
+            return [_normalize_tool_call_item(output)]
+        return None
+    if isinstance(output, (list, tuple)):
+        calls: list[dict[str, Any]] = []
+        for item in output:
+            if isinstance(item, dict):
+                item_type = item.get("type")
+                if item_type in {"tool_call", "function_call", "tool"}:
+                    calls.append(_normalize_tool_call_item(item))
+                    continue
+                nested = item.get("tool_calls")
+                if isinstance(nested, (list, tuple)):
+                    calls.extend(_normalize_tool_calls(nested))
+                    continue
+                if "function_call" in item:
+                    calls.append(_normalize_tool_call_item(item))
+                    continue
+            else:
+                item_type = getattr(item, "type", None)
+                if item_type in {"tool_call", "function_call", "tool"}:
+                    calls.append(_normalize_tool_call_item(item))
+        return calls or None
+    return None
+
+
+def _normalize_tool_calls(tool_calls: Any) -> list[dict[str, Any]]:
+    normalized: list[dict[str, Any]] = []
+    if isinstance(tool_calls, dict):
+        return [_normalize_tool_call_item(tool_calls)]
+    if not isinstance(tool_calls, (list, tuple)):
+        return normalized
+    for call in tool_calls:
+        normalized.append(_normalize_tool_call_item(call))
+    return normalized
+
+
+def _normalize_tool_call_item(call: Any) -> dict[str, Any]:
+    if isinstance(call, dict):
+        return dict(call)
+    function = getattr(call, "function", None)
+    return {
+        "id": getattr(call, "id", None),
+        "call_id": getattr(call, "call_id", None),
+        "type": getattr(call, "type", None),
+        "name": getattr(call, "name", None) or getattr(function, "name", None),
+        "arguments": getattr(call, "arguments", None) or getattr(function, "arguments", None),
+    }
+
+
+def _extract_structured_output(output: Any, tool_calls: list[dict[str, Any]] | None) -> Any | None:
+    if output is None:
+        return None
+    if isinstance(output, dict):
+        if "tool_calls" in output and len(output) == 1:
+            return None
+        return output
+    if isinstance(output, (list, tuple)):
+        if tool_calls is not None:
+            only_tool_calls = all(
+                isinstance(item, dict) and item.get("type") in {"tool_call", "function_call", "tool"}
+                for item in output
+            )
+            if only_tool_calls:
+                return None
+        return list(output)
     return None
 
 
@@ -476,7 +604,7 @@ def _extract_rubric_from_output(output: Any) -> dict[str, Any] | None:
     return None
 
 
-def _json_or_none(value: str | None) -> dict[str, Any] | None:
+def _json_or_none(value: str | None) -> Any | None:
     if not value:
         return None
     try:
@@ -555,12 +683,14 @@ def _build_trace_where(query: TraceQuery, default_tz) -> tuple[list[str], list[A
     if query.has_tool_call is True:
         where.append(
             "EXISTS (SELECT 1 FROM spans s WHERE s.trace_id = traces.id "
-            "AND (s.raw_json LIKE '%tool_calls%' OR s.raw_json LIKE '%function_call%'))"
+            "AND (s.tool_calls_json IS NOT NULL "
+            "OR s.raw_json LIKE '%tool_calls%' OR s.raw_json LIKE '%function_call%'))"
         )
     if query.has_tool_call is False:
         where.append(
             "NOT EXISTS (SELECT 1 FROM spans s WHERE s.trace_id = traces.id "
-            "AND (s.raw_json LIKE '%tool_calls%' OR s.raw_json LIKE '%function_call%'))"
+            "AND (s.tool_calls_json IS NOT NULL "
+            "OR s.raw_json LIKE '%tool_calls%' OR s.raw_json LIKE '%function_call%'))"
         )
     started_from = _normalize_query_dt(query.started_from, default_tz=default_tz)
     started_to = _normalize_query_dt(query.started_to, default_tz=default_tz)
@@ -655,6 +785,9 @@ def _row_to_span_record(row: sqlite3.Row, query: SpanQuery | None, default_tz) -
         ingest_seq=int(row["ingest_seq"] or 0),
         input=row["input"],
         output=row["output"],
+        output_kind=row["output_kind"],
+        tool_calls=_json_or_none(row["tool_calls_json"]),
+        structured=_json_or_none(row["structured_json"]),
         rubric=_json_or_none(row["rubric_json"]),
         usage=_json_or_none(row["usage_json"]),
         error=_json_or_none(row["error_json"]),
@@ -753,6 +886,14 @@ class OTELTracer(TracingProcessor):
             return
         otel_span = self._span_spans.pop(span_id, None)
         if otel_span is not None:
+            data = exported.get("span_data") or {}
+            output_kind, tool_calls, structured, _ = _extract_output_parts(data, data.get("output_raw"))
+            if output_kind:
+                otel_span.set_attribute("kantan_llm.output_kind", output_kind)
+            if tool_calls is not None:
+                otel_span.set_attribute("kantan_llm.tool_calls_json", sanitize_text(_to_text(tool_calls)))
+            if structured is not None:
+                otel_span.set_attribute("kantan_llm.structured_json", sanitize_text(_to_text(structured)))
             otel_span.end()
 
     def shutdown(self) -> None:

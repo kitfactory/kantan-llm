@@ -8,7 +8,7 @@
 - **Traceとは**: LLMのやり取りの記録をまとめたものです。動作状況の確認や改善のために使います。
 - **Trace**: 1つの処理や会話のまとまり（ワークフロー全体）です。
 - **Span**: Trace内の個々の処理（LLM呼び出し、tool呼び出し、評価など）です。
-- **属性**: Spanには `span_type`, `name`, `input`, `output`, `error`, `rubric` などの属性があります。
+- **属性**: Spanには `span_type`, `name`, `input`, `output`, `output_kind`, `tool_calls`, `structured`, `error`, `rubric` などの属性があります。
 - **usage**: 取得できる場合は tokens などの使用量が自動で記録されます（best-effort）。
 
 ### 1.1 LLM呼び出しは自動でSpanになります
@@ -129,6 +129,7 @@ spans = tracer.search_spans(query=SpanQuery(started_from=aware_from, started_to=
 
 tool呼び出しは `span_type="function"` として記録されます。
 検索は `span_type="function"` + `name` で行います。
+LLM出力側の tool call は `output_kind="tool_calls"` と `tool_calls_json` に保存されます。
 
 ```python
 from kantan_llm.tracing import SpanQuery
@@ -140,8 +141,8 @@ tool_spans = tracer.search_spans(query=SpanQuery(span_type="function", name="get
 
 ### 4.2 structured output
 
-structured output は `output` と `raw` に保存されます（検索は `keywords` で行います）。
-`score` / `comment` を含む structured output は、自動で `rubric` として記録されます。
+structured output は `output` と `structured_json`（SpanRecordでは `structured`）に保存されます（検索は `keywords` で行います）。
+`score` / `comment` を含む structured output は、自動で `rubric` として記録されます（`output_kind="rubric"`）。
 
 ```python
 from kantan_llm.tracing import SpanQuery

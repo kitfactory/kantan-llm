@@ -252,6 +252,15 @@
 - And: 出力テキストが無い場合、構造化出力（structured output）を記録する
 - And: さらに無い場合、function calling（tool call）の内容を記録する
 
+#### 7.8.3 出力を記録した場合、output_kind を区別保存する（F8）
+
+- Given: LLM呼び出しの出力が記録される
+- When: Tracerが出力を保存する
+- Then: `output_kind` を `text` / `tool_calls` / `structured` / `rubric` のいずれかで保存する
+- And: tool call を検出できる場合、`tool_calls_json` に保存する
+- And: 構造化出力を検出できる場合、`structured_json` に保存する
+- And: rubric を抽出できる場合、`output_kind="rubric"` を優先する
+
 ### 7.9 usage を記録する（F8）
 
 - Given: LLM呼び出しの応答に usage 情報が含まれる

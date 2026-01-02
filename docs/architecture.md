@@ -16,6 +16,7 @@
   - LLM呼び出しをSpanとして構造化し、Tracer（Processor）へ通知する
   - Tracer実装（Print/SQLite/OTEL）を提供する（外部SDKに必須依存しない）
   - SQLiteTracerはSpan挿入とusage_total更新を原子化し、usageは最小正規化する（F10）
+  - 出力は `output_kind` を持ち、`tool_calls_json` / `structured_json` に分離して保存する
 - Search layer（F9）
   - Trace/Spanの検索I/Fを提供する（SQLite/OTEL共通）
   - 特定Span/Trace、評価スコア、tool_call有無などの検索を抽象化する

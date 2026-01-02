@@ -84,6 +84,9 @@ class SpanRecord:
     ingest_seq: int
     input: str | None
     output: str | None
+    output_kind: str | None
+    tool_calls: list[dict[str, Any]] | None
+    structured: Any | None
     rubric: dict[str, Any] | None  # {"score": float | int, "comment": str | None, ...}
     usage: dict[str, Any] | None
     error: dict[str, Any] | None
@@ -111,11 +114,11 @@ class TraceSearchCapabilities:
 
 - SQLiteTracer（正式な検索実装の一つ / 仕様障壁が低い実装）:
   - `traces` / `spans` テーブルを検索対象とする
-  - JSONカラム（raw_json）から `tool_call` の有無や structured output を抽出できるようにする
+  - `output_kind` / `tool_calls_json` / `structured_json` で出力種別を区別できるようにする
   - `keywords` は `input` / `output` への部分一致で実装
   - `metadata` は JSON1 の `json_extract` でトップレベルのスカラー一致に対応
 - OTELTracer（Tempo想定）:
-  - OTELのSpan属性へ `kantan_llm.input` / `kantan_llm.output` を付与済み
+  - OTELのSpan属性へ `kantan_llm.input` / `kantan_llm.output` / `kantan_llm.output_kind` / `kantan_llm.tool_calls_json` / `kantan_llm.structured_json` を付与
   - Tempoの検索APIに委譲する前提で設計する
   - `capabilities.supports_since=False` の場合、`get_spans_since` は `NotSupportedError` を返す
 
@@ -158,6 +161,7 @@ OpenAI Agents SDK の Span 種別に合わせ、可能な限り変換を不要�
 | name | ✅（推奨） | `function` / `custom` / `guardrail` 等で名前を持つ | tool/custom の特定が容易 | 命名規則は自由 |
 | input | ✅（推奨: 検索したいSpan） | 検索したい入力はここに要約/抜粋 | keywords 検索が効く | 具体的な中身・整形形式は自由 |
 | output | ✅（推奨: 検索したいSpan） | 検索したい出力はここに要約/抜粋 | 生成結果確認・失敗調査が早い | 具体的な中身・整形形式は自由 |
+| output_kind | ✅（推奨: LLM出力） | `text` / `tool_calls` / `structured` / `rubric` | 解析時の出力区別が安定 | 将来の種類追加はOK |
 | usage | ✅（推奨: LLM呼び出し） | 使用量（tokens等）を best-effort で記録 | コストや効率の分析がしやすい | 詳細フィールドは自由 |
 | error | ✅（あるなら） | `None` or `dict`。`dict`は最小で `type` / `message`（推奨） | エラー抽出・分類が安定 | `stack` / `retryable` / `code` 等は自由 |
 | parent_id | ✅（推奨） | 親子関係を張る（無いなら `None`） | 失敗原因の辿りが簡単 | ツリーの粒度は自由 |

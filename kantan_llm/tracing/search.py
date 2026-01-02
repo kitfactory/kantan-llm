@@ -54,6 +54,9 @@ class SpanRecord:
     ingest_seq: int
     input: str | None
     output: str | None
+    output_kind: str | None
+    tool_calls: list[dict[str, Any]] | None
+    structured: Any | None
     rubric: dict[str, Any] | None
     usage: dict[str, Any] | None
     error: dict[str, Any] | None

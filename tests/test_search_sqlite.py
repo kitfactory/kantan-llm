@@ -57,10 +57,20 @@ def test_search_spans_by_name_and_rubric(tmp_path):
     assert len(judges) == 1
     assert judges[0].rubric["score"] == 0.7
     assert judges[0].rubric["comment"] == "good"
+    assert judges[0].output_kind == "rubric"
 
     auto_rubric = [s for s in tracer.search_spans(query=SpanQuery(span_type="generation")) if s.rubric]
     assert auto_rubric
     assert any(r.rubric["score"] == 0.2 for r in auto_rubric)
+    assert any(r.output_kind == "rubric" for r in auto_rubric)
+
+    text_spans = [s for s in tracer.search_spans(query=SpanQuery(span_type="generation")) if s.output_kind == "text"]
+    assert text_spans
+
+    tool_spans = [s for s in tracer.search_spans(query=SpanQuery(span_type="generation")) if s.output_kind == "tool_calls"]
+    assert tool_spans
+    assert tool_spans[0].tool_calls
+    assert tool_spans[0].structured is None
 
 
 def test_usage_recorded_in_span_and_trace(tmp_path):

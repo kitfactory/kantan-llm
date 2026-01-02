@@ -155,9 +155,11 @@ def _run_with_generation_span(
             span.set_error({"message": str(e), "data": {"api_kind": api_kind}})
             raise
 
-        output_text = sanitize_text(dump_for_tracing(_extract_output(api_kind=api_kind, response=result)))
+        output_raw = _extract_output(api_kind=api_kind, response=result)
+        output_text = sanitize_text(dump_for_tracing(output_raw))
         if isinstance(span.span_data, GenerationSpanData):
             span.span_data.output = output_text
+            span.span_data.output_raw = output_raw
             span.span_data.usage = _extract_usage(api_kind=api_kind, response=result)
         return result
 

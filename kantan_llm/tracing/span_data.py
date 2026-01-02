@@ -34,6 +34,7 @@ class FunctionSpanData(SpanData):
 class GenerationSpanData(SpanData):
     input: Any | None = None
     output: Any | None = None
+    output_raw: Any | None = None
     model: str | None = None
     usage: dict[str, Any] | None = None
 
@@ -42,6 +43,7 @@ class GenerationSpanData(SpanData):
             "type": "generation",
             "input": self.input,
             "output": self.output,
+            "output_raw": self.output_raw,
             "model": self.model,
             "usage": self.usage,
         }

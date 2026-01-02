@@ -151,11 +151,13 @@ PII等の高度な対策は将来オプションとし、現時点では Token/K
 
 ## 9. LLM入出力の記録内容
 
-出力は次の優先順位で記録します。
+出力は次の優先順位で記録し、`output_kind` で区別保存します。
 
 1. 出力テキスト
 2. 構造化出力（structured output）
 3. function calling（tool call）の内容
+
+rubric が抽出できる場合は `output_kind="rubric"` を優先します。
 
 ## 10. OpenAI Agents SDK での利用（任意）
 

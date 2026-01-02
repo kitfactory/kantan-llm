@@ -91,4 +91,4 @@
 - 自動生成Trace名: `with trace` なしのLLM呼び出しで自動生成するTraceの `workflow_name` は `default_workflow_name` とする
 - 省略上限の環境変数: `KANTAN_LLM_TRACING_MAX_CHARS`
 - 省略上限の適用範囲: PrintTracer / SQLiteTracer / OTELTracer のすべてに共通で適用する
-- 記録する出力内容: 出力テキスト、または構造化出力（structured output）、または関数呼び出し（function calling）の内容を記録対象とする
+- 記録する出力内容: 出力テキスト / 構造化出力（structured output） / 関数呼び出し（tool call） / ルーブリックを記録対象とし、`output_kind` で区別保存する
