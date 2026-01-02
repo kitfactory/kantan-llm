@@ -161,7 +161,7 @@ OpenAI Agents SDK の Span 種別に合わせ、可能な限り変換を不要�
 | name | ✅（推奨） | `function` / `custom` / `guardrail` 等で名前を持つ | tool/custom の特定が容易 | 命名規則は自由 |
 | input | ✅（推奨: 検索したいSpan） | 検索したい入力はここに要約/抜粋 | keywords 検索が効く | 具体的な中身・整形形式は自由 |
 | output | ✅（推奨: 検索したいSpan） | 検索したい出力はここに要約/抜粋 | 生成結果確認・失敗調査が早い | 具体的な中身・整形形式は自由 |
-| output_kind | ✅（推奨: LLM出力） | `text` / `tool_calls` / `structured` / `rubric` | 解析時の出力区別が安定 | 将来の種類追加はOK |
+| output_kind | ✅（推奨: LLM出力/評価） | `text` / `tool_calls` / `structured` / `judge` | 解析時の出力区別が安定 | 将来の種類追加はOK |
 | usage | ✅（推奨: LLM呼び出し） | 使用量（tokens等）を best-effort で記録 | コストや効率の分析がしやすい | 詳細フィールドは自由 |
 | error | ✅（あるなら） | `None` or `dict`。`dict`は最小で `type` / `message`（推奨） | エラー抽出・分類が安定 | `stack` / `retryable` / `code` 等は自由 |
 | parent_id | ✅（推奨） | 親子関係を張る（無いなら `None`） | 失敗原因の辿りが簡単 | ツリーの粒度は自由 |

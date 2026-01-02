@@ -118,4 +118,11 @@ def group_failed_by_bucket(spans: Sequence["SpanRecord"]) -> dict[str, list["Spa
 - 例外メッセージは必ず Error ID を含める（例: `[kantan-llm][E2] ...`）
 - `providers=[...]` の全滅時は候補ごとの失敗理由をまとめて返す
 - 機密情報（APIキー等）をエラー文面に含めない
+
+## 4. kantan-llm / kantan-agents の境界（要件）
+
+- kantan-llm: Trace/Spanの保存・検索I/Fを担い、分析用の最小規約（kind等）を提供する
+- kantan-llm: Agents SDK 互換のTracer I/Fを維持し、SDK依存は持たない
+- kantan-agents: Agents SDK のAPIを再エクスポートし、Agentクラスでメタ情報を付与する
+- kantan-agents: 評価Span（judge）やrubric正規化、検索ユーティリティの体験を担う
 - トレーシング失敗は非致命とし、LLM呼び出し自体は継続する（Tracer側で握りつぶす）

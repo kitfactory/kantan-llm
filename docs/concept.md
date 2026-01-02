@@ -82,6 +82,7 @@
 - usageキーの揺れを最小正規化し、total_tokens を安定させる
 - SQLなしで閾値未満のjudgeを拾うユーティリティを追加する
 
+
 ## 合意済み（F8: PrintTracerのデフォルト）
 
 - 色分け: 入力（プロンプト）と出力を色分けして表示する
@@ -91,4 +92,11 @@
 - 自動生成Trace名: `with trace` なしのLLM呼び出しで自動生成するTraceの `workflow_name` は `default_workflow_name` とする
 - 省略上限の環境変数: `KANTAN_LLM_TRACING_MAX_CHARS`
 - 省略上限の適用範囲: PrintTracer / SQLiteTracer / OTELTracer のすべてに共通で適用する
-- 記録する出力内容: 出力テキスト / 構造化出力（structured output） / 関数呼び出し（tool call） / ルーブリックを記録対象とし、`output_kind` で区別保存する
+- 記録する出力内容: 出力テキスト / 構造化出力（structured output） / 関数呼び出し（tool call） / ルーブリックを記録対象とし、`output_kind`（text/tool_calls/structured/judge）で区別保存する
+
+## kantan-llm / kantan-agents のすみわけ（案）
+
+- kantan-llm: Trace/Span の記録・保存・検索I/Fを提供し、`kind` など分析起点の最小規約を整備する
+- kantan-llm: Agents SDK を必須依存にせず、Tracer互換I/Fで連携できる状態を維持する
+- kantan-agents: Agents SDK のAPIを再エクスポートし、Agentクラスでメタ情報（agent名/prompt名/版）を付与する
+- kantan-agents: `judge` など評価Span生成・rubric正規化・検索ユーティリティを体験として提供する

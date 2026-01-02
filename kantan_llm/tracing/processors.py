@@ -430,8 +430,8 @@ def _output_label(output_kind: str | None) -> str:
         return "TOOL_CALLS:"
     if output_kind == "structured":
         return "STRUCTURED:"
-    if output_kind == "rubric":
-        return "RUBRIC:"
+    if output_kind == "judge":
+        return "JUDGE:"
     return "OUTPUT:"
 
 
@@ -446,7 +446,7 @@ def _extract_output_parts(
 
     output_kind = None
     if rubric is not None:
-        output_kind = "rubric"
+        output_kind = "judge"
     elif tool_calls is not None:
         output_kind = "tool_calls"
     elif structured is not None:

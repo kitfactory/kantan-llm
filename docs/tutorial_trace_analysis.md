@@ -142,7 +142,7 @@ tool_spans = tracer.search_spans(query=SpanQuery(span_type="function", name="get
 ### 4.2 structured output
 
 structured output は `output` と `structured_json`（SpanRecordでは `structured`）に保存されます（検索は `keywords` で行います）。
-`score` / `comment` を含む structured output は、自動で `rubric` として記録されます（`output_kind="rubric"`）。
+`score` / `comment` を含む structured output は、自動で `rubric` として記録されます（`output_kind="judge"`）。
 
 ```python
 from kantan_llm.tracing import SpanQuery
