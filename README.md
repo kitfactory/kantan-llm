@@ -146,6 +146,46 @@ with trace("workflow"):
 
 More: `docs/tracing.md`
 
+## Async (ASGI) support
+ASGI（FastAPI/Starlette）で event loop をブロックしないため、async 導線を提供します。
+
+### get_async_llm()（推奨）
+- kantan-llm の保証（正規化/フォールバック/ガード/トレース）を async でも維持します。
+
+### get_async_llm_client()（Escape hatch）
+- `AsyncOpenAI` の raw client を返します（互換性最大化、Agents SDK 注入向け）。
+- **注意:** raw client 返却では API ガード / 自動トレーシングは行いません。
+- 代わりに `model/provider/base_url` を含む bundle を返し、正規化済み model 名を下流へ渡せます。
+
+## OpenAI Agents SDK integration
+Agents SDK は AsyncOpenAI client を差し替え可能です。
+
+- デフォルト client を差し替える:
+  - `set_default_openai_client(AsyncOpenAI(...))`
+- モデル単位で client を渡す:
+  - `OpenAIResponsesModel(..., openai_client=AsyncOpenAI(...))`
+
+### In kantan-agents
+kantan-agents (Agents SDK wrapper) uses the same two entry points:
+
+- `set_default_openai_client(...)`
+- `OpenAIResponsesModel(..., openai_client=...)`
+
+kantan-llm で Agents SDK を使う場合の推奨:
+
+- 互換性優先: `bundle = get_async_llm_client(...)`
+  - `bundle.client` を Agents SDK に渡す
+  - `bundle.model`（正規化済み）を Agent/Model 側へ渡す
+- kantan のガード/トレースも使いたい: `llm = get_async_llm(...)`
+  - ただし Agents SDK 側と二重トレースになり得るため、どちらでトレースするか方針を決める（下記）。
+
+### Tracing（二重計測を避ける）
+Agents SDK 側にはトレーシング無効化の導線があります（例: `set_tracing_disabled(True)` や環境変数）。
+運用では以下のどちらかを選びます。
+
+- A) Agents SDK のトレースを有効、kantan 側トレースは無効（または raw client を使う）
+- B) kantan のトレースを有効、Agents SDK 側トレースは無効
+
 ## Search (SQLite) 🔎
 
 Use `SQLiteTracer` as a lightweight search backend for traces/spans.

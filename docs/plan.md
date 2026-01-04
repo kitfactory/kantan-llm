@@ -59,3 +59,12 @@
 - [x] ルーブリック検索ユーティリティ（find_failed_judges/group_failed_by_bucket）を追加
 - [x] テスト: transaction/usage正規化/ユーティリティ
 - [x] チュートリアルに最短例を追記
+
+## Phase 0.6（Async / Agents SDK 連携: F12）
+
+- [x] Async / Agents 連携のドキュメントを更新（concept/spec/architecture/README）
+- [x] resolver の共通化（sync/async parity）を実装
+- [x] `get_async_llm_client`（raw async bundle）を実装
+- [x] `get_async_llm`（KantanAsyncLLM）を実装
+- [x] Async の API ガード / トレース方針を整備
+- [x] テスト: resolver parity / model 正規化 / tracer 既定挙動

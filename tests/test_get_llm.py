@@ -1,8 +1,17 @@
+import asyncio
 import pytest
 
 from types import SimpleNamespace
 
-from kantan_llm import InvalidOptionsError, MissingConfigError, WrongAPIError, get_llm
+from kantan_llm import (
+    InvalidOptionsError,
+    MissingConfigError,
+    WrongAPIError,
+    get_async_llm,
+    get_async_llm_client,
+    get_llm,
+)
+from kantan_llm.tracing import PrintTracer, get_trace_provider, set_trace_processors
 
 
 def test_openai_inference_and_guard(monkeypatch):
@@ -139,3 +148,76 @@ def test_llm_delegates_unknown_attrs(monkeypatch):
     llm = get_llm("gpt-4.1-mini")
     assert llm.foo == "bar"
     assert llm.models.list() == ["ok"]
+
+
+def test_async_client_bundle_normalizes_openai_prefix(monkeypatch):
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+    bundle = get_async_llm_client("openai/gpt-4.1-mini")
+    assert bundle.provider == "openai"
+    assert bundle.model == "gpt-4.1-mini"
+
+
+def test_async_llm_guard_and_create(monkeypatch):
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+
+    class DummyResponses:
+        async def create(self, *args, **kwargs):
+            return SimpleNamespace(output_text="ok", usage={"total_tokens": 1})
+
+    class DummyChatCompletions:
+        async def create(self, *args, **kwargs):
+            return {"choices": [{"message": {"content": "ok"}}]}
+
+    class DummyChat:
+        completions = DummyChatCompletions()
+
+    class DummyAsyncClient:
+        def __init__(self):
+            self.responses = DummyResponses()
+            self.chat = DummyChat()
+
+    monkeypatch.setattr("kantan_llm.AsyncOpenAI", lambda **kwargs: DummyAsyncClient())
+
+    llm = get_async_llm("gpt-4.1-mini")
+    assert llm.provider == "openai"
+
+    with pytest.raises(WrongAPIError) as exc:
+        _ = llm.chat
+    assert "[kantan-llm][E7]" in str(exc.value)
+
+    async def _run() -> str:
+        res = await llm.responses.create(input="hi")
+        return res.output_text
+
+    assert asyncio.run(_run()) == "ok"
+
+
+def test_async_resolver_parity_openrouter(monkeypatch):
+    monkeypatch.delenv("CLAUDE_API_KEY", raising=False)
+    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-or-test")
+
+    llm = get_llm("claude-3-5-sonnet-latest")
+    bundle = get_async_llm_client("claude-3-5-sonnet-latest")
+
+    assert llm.provider == bundle.provider
+    assert llm.model == bundle.model
+
+
+def test_async_tracer_default_parity(monkeypatch):
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+
+    original_processors = get_trace_provider().get_processors()
+    try:
+        set_trace_processors([])
+        get_llm("gpt-4.1-mini")
+        sync_processors = get_trace_provider().get_processors()
+
+        set_trace_processors([])
+        get_async_llm("gpt-4.1-mini")
+        async_processors = get_trace_provider().get_processors()
+    finally:
+        set_trace_processors(list(original_processors))
+
+    assert sync_processors and async_processors
+    assert isinstance(sync_processors[0], PrintTracer)
+    assert isinstance(async_processors[0], PrintTracer)

@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Protocol
+from typing import Any, Awaitable, Protocol
+
+from openai import AsyncOpenAI
 
 from .errors import WrongAPIError
 from .tracing import default_workflow_name
@@ -13,6 +15,18 @@ from .tracing.traces import Trace
 
 class _CreateCallable(Protocol):
     def __call__(self, *args: Any, **kwargs: Any) -> Any: ...
+
+
+class _AsyncCreateCallable(Protocol):
+    def __call__(self, *args: Any, **kwargs: Any) -> Awaitable[Any]: ...
+
+
+@dataclass(frozen=True)
+class AsyncClientBundle:
+    client: AsyncOpenAI
+    model: str
+    provider: str
+    base_url: str | None
 
 
 @dataclass(frozen=True)
@@ -55,6 +69,45 @@ class _ChatAPI:
 
 
 @dataclass(frozen=True)
+class _AsyncResponsesAPI:
+    _create: _AsyncCreateCallable
+    _default_model: str
+
+    async def create(self, *args: Any, **kwargs: Any) -> Any:
+        if "model" not in kwargs:
+            kwargs["model"] = self._default_model
+        return await _traced_llm_create_async(
+            api_kind="responses",
+            default_model=self._default_model,
+            create_callable=self._create,
+            args=args,
+            kwargs=kwargs,
+        )
+
+
+@dataclass(frozen=True)
+class _AsyncChatCompletionsAPI:
+    _create: _AsyncCreateCallable
+    _default_model: str
+
+    async def create(self, *args: Any, **kwargs: Any) -> Any:
+        if "model" not in kwargs:
+            kwargs["model"] = self._default_model
+        return await _traced_llm_create_async(
+            api_kind="chat.completions",
+            default_model=self._default_model,
+            create_callable=self._create,
+            args=args,
+            kwargs=kwargs,
+        )
+
+
+@dataclass(frozen=True)
+class _AsyncChatAPI:
+    completions: _AsyncChatCompletionsAPI
+
+
+@dataclass(frozen=True)
 class KantanLLM:
     """
     Thin wrapper that exposes the right API for the provider.
@@ -86,6 +139,41 @@ class KantanLLM:
             )
         return _ChatAPI(
             completions=_ChatCompletionsAPI(_create=self.client.chat.completions.create, _default_model=self.model)
+        )
+
+
+@dataclass(frozen=True)
+class KantanAsyncLLM:
+    """
+    Thin async wrapper that exposes the right API for the provider.
+    / provider に応じた正本APIだけを公開する async ラッパー。
+    """
+
+    provider: str
+    model: str
+    client: Any
+
+    # Japanese/English: 未定義属性はAsyncOpenAIクライアントへ委譲 / Delegate unknown attrs to AsyncOpenAI client.
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self.client, name)
+
+    def __dir__(self) -> list[str]:
+        return sorted(set(super().__dir__()) | set(dir(self.client)))
+
+    @property
+    def responses(self) -> _AsyncResponsesAPI:
+        if self.provider != "openai":
+            raise WrongAPIError(f"[kantan-llm][E6] Responses API is not enabled for provider: {self.provider}")
+        return _AsyncResponsesAPI(_create=self.client.responses.create, _default_model=self.model)
+
+    @property
+    def chat(self) -> _AsyncChatAPI:
+        if self.provider not in {"compat", "lmstudio", "ollama", "openrouter", "google", "anthropic"}:
+            raise WrongAPIError(
+                f"[kantan-llm][E7] Chat Completions API is not enabled for provider: {self.provider}"
+            )
+        return _AsyncChatAPI(
+            completions=_AsyncChatCompletionsAPI(_create=self.client.chat.completions.create, _default_model=self.model)
         )
 
 
@@ -132,6 +220,49 @@ def _traced_llm_create(
     )
 
 
+async def _traced_llm_create_async(
+    *,
+    api_kind: str,
+    default_model: str,
+    create_callable: _AsyncCreateCallable,
+    args: tuple[Any, ...],
+    kwargs: dict[str, Any],
+) -> Any:
+    # Japanese/English: with traceが無い場合は自動でTraceを作る / Auto-create trace if none exists.
+    current = get_current_trace()
+    auto_trace: Trace | None = None
+    if current is None:
+        from .tracing import trace as trace_factory
+
+        auto_trace = trace_factory(default_workflow_name)
+
+    model = kwargs.get("model") or default_model
+    input_payload = _extract_input(api_kind=api_kind, args=args, kwargs=kwargs)
+    input_text = sanitize_text(dump_for_tracing(input_payload))
+
+    if auto_trace is not None:
+        with auto_trace as t:
+            return await _run_with_generation_span_async(
+                parent_trace=t,
+                model=model,
+                input_text=input_text,
+                api_kind=api_kind,
+                create_callable=create_callable,
+                args=args,
+                kwargs=kwargs,
+            )
+
+    return await _run_with_generation_span_async(
+        parent_trace=None,
+        model=model,
+        input_text=input_text,
+        api_kind=api_kind,
+        create_callable=create_callable,
+        args=args,
+        kwargs=kwargs,
+    )
+
+
 def _run_with_generation_span(
     *,
     parent_trace: Trace | None,
@@ -151,6 +282,38 @@ def _run_with_generation_span(
     with span:
         try:
             result = create_callable(*args, **kwargs)
+        except Exception as e:
+            span.set_error({"message": str(e), "data": {"api_kind": api_kind}})
+            raise
+
+        output_raw = _extract_output(api_kind=api_kind, response=result)
+        output_text = sanitize_text(dump_for_tracing(output_raw))
+        if isinstance(span.span_data, GenerationSpanData):
+            span.span_data.output = output_text
+            span.span_data.output_raw = output_raw
+            span.span_data.usage = _extract_usage(api_kind=api_kind, response=result)
+        return result
+
+
+async def _run_with_generation_span_async(
+    *,
+    parent_trace: Trace | None,
+    model: str,
+    input_text: str,
+    api_kind: str,
+    create_callable: _AsyncCreateCallable,
+    args: tuple[Any, ...],
+    kwargs: dict[str, Any],
+) -> Any:
+    span = generation_span(
+        input=input_text,
+        output=None,
+        model=model,
+        parent=parent_trace,
+    )
+    with span:
+        try:
+            result = await create_callable(*args, **kwargs)
         except Exception as e:
             span.set_error({"message": str(e), "data": {"api_kind": api_kind}})
             raise

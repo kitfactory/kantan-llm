@@ -4,13 +4,14 @@
 
 - Public API layer
   - `kantan_llm.get_llm` を公開する
+  - `kantan_llm.get_async_llm` / `kantan_llm.get_async_llm_client` を公開する（escape hatch）
   - 入力バリデーション、推測/上書き、フォールバック選択を行う
 - Provider layer
   - provider推測、環境変数/引数からの設定解決
   - OpenAI SDK `OpenAI` クライアントを適切な `api_key` / `base_url` で構築する
 - Wrapper layer
   - `llm.responses.create(...)` / `llm.chat.completions.create(...)` を提供する
-  - 返却（Responses/ChatCompletions）は原形保持（変換しない）
+  - Async版の `KantanAsyncLLM` を提供する
 - Tracing layer（F8）
   - `kantan_llm.tracing.trace(...)` とカレントTrace管理（contextvars）を提供する
   - LLM呼び出しをSpanとして構造化し、Tracer（Processor）へ通知する
@@ -23,6 +24,18 @@
   - ルーブリック検索の補助ユーティリティは Search I/F のみを利用する（F11）
 
 依存方向: Public API → Provider → Wrapper → Tracing（逆依存はしない）
+
+## 1.1 Resolver is the single source of truth
+
+provider 推測 / model 正規化 / 環境変数解決 / フォールバック方針は **共通 resolver** に集約する。
+sync/async のクライアント生成は resolver の解決結果に従うだけとし、ロジックを再実装しない。
+
+## 1.2 Async is an escape hatch (for ASGI / Agents SDK)
+
+Async は paved path ではなく、ASGI での event loop ブロック回避と Agents SDK 連携のための escape hatch とする。
+
+- Agents SDK は AsyncOpenAI client を差し替えできるため、raw async client bundle はその注入用途を想定する。
+- raw client 返却ではガード/自動トレースを強制しない（安全のため明記）。
 
 ## 2. 主要I/F（最小粒度・最小引数）
 
@@ -42,12 +55,56 @@ def get_llm(
     ...
 ```
 
+```python
+def get_async_llm_client(
+    model: str,
+    *,
+    provider: str | None = None,
+    providers: list[str] | None = None,
+    api_key: str | None = None,
+    base_url: str | None = None,
+    timeout: float | None = None,
+):
+    ...
+```
+
+```python
+def get_async_llm(
+    model: str,
+    *,
+    provider: str | None = None,
+    providers: list[str] | None = None,
+    api_key: str | None = None,
+    base_url: str | None = None,
+    timeout: float | None = None,
+    tracer=None,
+):
+    ...
+```
+
+```python
+from dataclasses import dataclass
+from openai import AsyncOpenAI
+
+
+@dataclass(frozen=True)
+class AsyncClientBundle:
+    client: AsyncOpenAI
+    model: str
+    provider: str
+    base_url: str | None
+```
+
 ### 2.2 Wrapper
 
 - `KantanLLM`
   - 属性: `provider: str`, `model: str`, `client: OpenAI`
   - `responses.create(...)`（provider=`openai` のみ）
   - `chat.completions.create(...)`（provider=`compat` のみ）
+- `KantanAsyncLLM`
+  - 属性: `provider: str`, `model: str`, `client: AsyncOpenAI`
+  - `responses.create(...)`（provider=`openai` のみ、async）
+  - `chat.completions.create(...)`（provider=`compat` のみ、async）
 
 ### 2.3 Tracing（最小I/F）
 

@@ -26,6 +26,51 @@
 - 予算超過の強制停止、複雑なルーティング、統制ポリシーの中核実装
 - 統制は必要なら外部ゲートウェイ/社内基盤で後付けする
 
+## Async / Agents SDK 連携（Escape hatch）
+
+### Paved path（推奨の一本道）
+kantan-llm の推奨パスは **同期（sync）**のラッパー経由の利用です。このパスでは以下を “保証” します。
+
+- provider 推測 / model 正規化 / 環境変数解決
+- provider フォールバック方針
+- API 方針（Responses / Chat など）のガード
+- 自動トレーシング（有効化されている場合）
+
+### Non-goals（Paved path の非ゴール）
+- Async-first API（最初から async 前提の設計）
+- Streaming の保証（このフェーズでは扱わない）
+
+### Escape hatches（例外導線）
+ASGI（FastAPI / Starlette 等）で event loop をブロックしないために、Async は **escape hatch（例外導線）**として提供します。Async には 2 段階あります。
+
+1) **Raw async client bundle（ガード無し / 自動トレース無し）**
+- 互換性最大化のため、SDK の `AsyncOpenAI` を “そのまま” 返します。
+- ただし raw client 返却では、kantan-llm の **API ガード / 自動トレーシングは強制しません**。
+- 代わりに、下流（例: OpenAI Agents SDK）へ渡せるよう **正規化済み model/provider/base_url も一緒に返します**。
+
+2) **KantanAsyncLLM（ガードあり / 自動トレースあり）**
+- 同期版（KantanLLM）と同等の保証（正規化/フォールバック/ガード/トレース）を提供する async ラッパーです。
+- ただし Agents SDK 側にもトレーシング機構があるため、二重計測にならないよう “どちらでトレースするか” を明示します（後述）。
+
+### OpenAI Agents SDK 連携（設計の前提）
+Async escape hatch は **OpenAI Agents SDK で “任意の AsyncOpenAI client を差し替える”**用途を想定します。
+
+- Agents SDK は `set_default_openai_client(AsyncOpenAI(...))` によりデフォルト client を差し替えられます。
+- また `OpenAIResponsesModel(..., openai_client=AsyncOpenAI(...))` のように、モデル単位で `openai_client` を渡すこともできます。
+- kantan-agents では上記 2 つのメソッドを利用して client を差し替えます。
+
+このため kantan-llm は、Agents SDK に渡しやすいように raw async client 返却時でも **正規化済み model 名を必ず外に出す**設計にします。
+
+### Tracing policy（二重計測を避ける）
+Agents SDK 側にもトレーシング無効化の導線があるため、運用では次のいずれかを選びます。
+
+- A) Agents SDK のトレースを使う（kantan 側トレースは無効、または raw client）
+- B) kantan のトレースを使う（Agents SDK 側トレースは無効）
+
+### Resolver parity（最重要保証）
+- sync / async の推測・正規化ロジックは単一 resolver に集約する
+- get_llm() と get_async_llm()/get_async_llm_client() の解決結果は一致すること
+
 ## 機能一覧（表）
 
 | Spec ID | 機能名 | 概要 | 依存 | MVP | Phase |
@@ -41,6 +86,7 @@
 | F9 | Trace検索サービス | Trace/Spanを検索・抽出する共通I/Fを提供する | F8 | ◯ | 0.3 |
 | F10 | SQLite正本の改善ループ強化（最小） | SQLiteTracer の原子性・usage正規化を改善する | F8, F9 | ◯ | 0.4+ |
 | F11 | ルーブリック検索ユーティリティ | search I/F を使った失敗抽出/バケット分けを補助する | F9 | ◯ | 0.4+ |
+| F12 | Async 導線 / Agents SDK 連携（escape hatch） | raw async client bundle と KantanAsyncLLM を提供する | F2, F3, F4, F5, F6, F8 | ✗ | 0.6 |
 
 ## フェーズ分け
 
@@ -52,7 +98,8 @@
 
 ### 将来（今回は不要）
 
-- Streaming / Async
+- Streaming
+- Async-first API
 - structured output
 - retry/backoff
 - キャッシュ、セッション、詳細なレート制御
@@ -81,6 +128,14 @@
 - SQLiteTracer の書き込みを原子化して「部分書き込み」を防ぐ
 - usageキーの揺れを最小正規化し、total_tokens を安定させる
 - SQLなしで閾値未満のjudgeを拾うユーティリティを追加する
+
+### Phase 0.6（Async / Agents SDK 連携）
+
+- F12 を実装する
+  - `get_async_llm_client`（raw async bundle）を提供する
+  - `get_async_llm`（KantanAsyncLLM）を提供する
+  - sync/async の resolver parity を保証する
+  - Agents SDK 連携例と二重トレース方針を整備する
 
 
 ## 合意済み（F8: PrintTracerのデフォルト）
