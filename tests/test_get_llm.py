@@ -221,3 +221,178 @@ def test_async_tracer_default_parity(monkeypatch):
     assert sync_processors and async_processors
     assert isinstance(sync_processors[0], PrintTracer)
     assert isinstance(async_processors[0], PrintTracer)
+
+
+def test_async_stream_traces_summary(monkeypatch):
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+
+    class CollectingTracer:
+        def __init__(self):
+            self.spans = []
+
+        def on_trace_start(self, trace) -> None:
+            return
+
+        def on_trace_end(self, trace) -> None:
+            return
+
+        def on_span_start(self, span) -> None:
+            return
+
+        def on_span_end(self, span) -> None:
+            self.spans.append(span)
+
+        def shutdown(self) -> None:
+            return
+
+        def force_flush(self) -> None:
+            return
+
+    class DummyStream:
+        def __init__(self):
+            self._events = iter([{"type": "delta"}, {"type": "done"}])
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc_val, exc_tb):
+            return False
+
+        def __aiter__(self):
+            return self
+
+        async def __anext__(self):
+            try:
+                return next(self._events)
+            except StopIteration:
+                raise StopAsyncIteration
+
+        async def get_final_response(self):
+            return SimpleNamespace(output_text="streamed", usage={"total_tokens": 2})
+
+    class DummyResponses:
+        async def create(self, *args, **kwargs):
+            return SimpleNamespace(output_text="ok", usage={"total_tokens": 1})
+
+        def stream(self, *args, **kwargs):
+            return DummyStream()
+
+    class DummyChatCompletions:
+        async def create(self, *args, **kwargs):
+            return {"choices": [{"message": {"content": "ok"}}]}
+
+        def stream(self, *args, **kwargs):
+            return DummyStream()
+
+    class DummyChat:
+        completions = DummyChatCompletions()
+
+    class DummyAsyncClient:
+        def __init__(self):
+            self.responses = DummyResponses()
+            self.chat = DummyChat()
+
+    monkeypatch.setattr("kantan_llm.AsyncOpenAI", lambda **kwargs: DummyAsyncClient())
+
+    tracer = CollectingTracer()
+    original_processors = get_trace_provider().get_processors()
+    try:
+        llm = get_async_llm("gpt-4.1-mini", tracer=tracer)
+
+        async def _run() -> str:
+            async with llm.responses.stream(input="hi") as stream:
+                async for _ in stream:
+                    pass
+                final = await stream.get_final_response()
+                return final.output_text
+
+        assert asyncio.run(_run()) == "streamed"
+    finally:
+        set_trace_processors(list(original_processors))
+
+    assert tracer.spans
+    span = tracer.spans[-1]
+    assert span.span_data.output == "streamed"
+
+
+def test_async_stream_output_item_fallback(monkeypatch):
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+
+    class CollectingTracer:
+        def __init__(self):
+            self.spans = []
+
+        def on_trace_start(self, trace) -> None:
+            return
+
+        def on_trace_end(self, trace) -> None:
+            return
+
+        def on_span_start(self, span) -> None:
+            return
+
+        def on_span_end(self, span) -> None:
+            self.spans.append(span)
+
+        def shutdown(self) -> None:
+            return
+
+        def force_flush(self) -> None:
+            return
+
+    class DummyStream:
+        def __init__(self):
+            self._events = iter(
+                [
+                    {
+                        "type": "response.output_item.done",
+                        "item": {"content": [{"type": "output_text", "text": "OK"}]},
+                    }
+                ]
+            )
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc_val, exc_tb):
+            return False
+
+        def __aiter__(self):
+            return self
+
+        async def __anext__(self):
+            try:
+                return next(self._events)
+            except StopIteration:
+                raise StopAsyncIteration
+
+    class DummyResponses:
+        async def create(self, *args, **kwargs):
+            return SimpleNamespace(output_text="ok", usage={"total_tokens": 1})
+
+        def stream(self, *args, **kwargs):
+            return DummyStream()
+
+    class DummyAsyncClient:
+        def __init__(self):
+            self.responses = DummyResponses()
+
+    monkeypatch.setattr("kantan_llm.AsyncOpenAI", lambda **kwargs: DummyAsyncClient())
+
+    tracer = CollectingTracer()
+    original_processors = get_trace_provider().get_processors()
+    try:
+        llm = get_async_llm("gpt-4.1-mini", tracer=tracer)
+
+        async def _run() -> None:
+            async with llm.responses.stream(input="hi") as stream:
+                async for _ in stream:
+                    pass
+
+        asyncio.run(_run())
+    finally:
+        set_trace_processors(list(original_processors))
+
+    assert tracer.spans
+    span = tracer.spans[-1]
+    assert span.span_data.output == "OK"

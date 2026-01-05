@@ -152,6 +152,23 @@ ASGI（FastAPI/Starlette）で event loop をブロックしないため、async
 ### get_async_llm()（推奨）
 - kantan-llm の保証（正規化/フォールバック/ガード/トレース）を async でも維持します。
 
+### Async streaming (KantanAsyncLLM)
+KantanAsyncLLM では streaming API を提供し、最終応答でまとめてトレースします。
+
+```python
+from kantan_llm import get_async_llm
+
+llm = get_async_llm("gpt-4.1-mini")
+async with llm.responses.stream(input="Say hi.") as stream:
+    async for _ in stream:
+        pass
+    final = await stream.get_final_response()
+print(final.output_text)
+```
+
+Note: Some models (e.g. `gpt-5-mini`) may emit only `response.output_item.*` events without `output_text`/text deltas.
+KantanAsyncLLM tries `output_text` first, then stream deltas, then `output_item` text; if none exists, the stream completes but the traced output can be empty.
+
 ### get_async_llm_client()（Escape hatch）
 - `AsyncOpenAI` の raw client を返します（互換性最大化、Agents SDK 注入向け）。
 - **注意:** raw client 返却では API ガード / 自動トレーシングは行いません。

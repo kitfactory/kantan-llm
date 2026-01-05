@@ -67,4 +67,5 @@
 - [x] `get_async_llm_client`（raw async bundle）を実装
 - [x] `get_async_llm`（KantanAsyncLLM）を実装
 - [x] Async の API ガード / トレース方針を整備
+- [x] KantanAsyncLLM の streaming API とまとめトレースを実装
 - [x] テスト: resolver parity / model 正規化 / tracer 既定挙動

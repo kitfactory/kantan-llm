@@ -105,6 +105,7 @@ class AsyncClientBundle:
   - 属性: `provider: str`, `model: str`, `client: AsyncOpenAI`
   - `responses.create(...)`（provider=`openai` のみ、async）
   - `chat.completions.create(...)`（provider=`compat` のみ、async）
+  - `responses.stream(...)` / `chat.completions.stream(...)`（async、最終応答でまとめトレース）
 
 ### 2.3 Tracing（最小I/F）
 

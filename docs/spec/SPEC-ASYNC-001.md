@@ -9,10 +9,11 @@ Draft
 ## 1. 目的 / Scope
 ASGI（FastAPI/Starlette）環境で event loop をブロックしない async 導線を追加する。
 sync/async の推測・正規化の差分をなくし、Agents SDK 連携に必要な情報を外に出す。
+KantanAsyncLLM では streaming API を提供し、最終応答でまとめてトレースする。
 
 ## 2. 非ゴール
 - Async-first API を paved path にする
-- Streaming の保証
+- Streaming の保証（sync / paved path）
 - raw client 返却に対する API ガード / 自動トレーシングの強制
 
 ## 3. 用語
@@ -57,6 +58,24 @@ sync/async の推測・正規化の差分をなくし、Agents SDK 連携に必�
 - Given: KantanAsyncLLM を利用する
 - When: llm.client にアクセスする
 - Then: AsyncOpenAI を返す
+
+### 5.4 KantanAsyncLLM の streaming API を利用できる（F12）
+- Given: KantanAsyncLLM を利用する
+- When: llm.responses.stream(...) または llm.chat.completions.stream(...) を呼ぶ
+- Then: async stream を返す
+
+### 5.5 streaming のトレースは最終応答でまとめて記録する（F12）
+- Given: KantanAsyncLLM の streaming API を利用する
+- When: ストリームが終了する
+- Then: 最終応答をもとに output/usage をまとめて記録する
+- And: 最終応答を取得できない場合は、ストリームのテキスト差分を結合して output を記録する
+- And: `response.output_item.*` の `output_text` がある場合はそれも結合して記録する
+- And: 取得順序は `output_text` → ストリーム差分 → `output_item` の順とする
+
+### 5.6 streaming のテキスト差分も無い場合、output が空になることがある（F12）
+- Given: KantanAsyncLLM の streaming API を利用する
+- When: `output_text` もテキスト差分も返らない（例: `gpt-5-mini` が `response.output_item.*` のみ返す）
+- Then: output が空のまま Span が記録される
 
 ## 6. Agents SDK 連携（F12）
 
@@ -175,3 +194,8 @@ kantan-agents では本章の差し替え導線を利用して client を注入�
 - Given: tracer 未指定
 - When: get_llm() と get_async_llm() を呼ぶ
 - Then: 既定の tracer 方針が一致する
+
+### 11.4 streaming のまとめトレースが記録される（F12）
+- Given: KantanAsyncLLM の streaming API を利用する
+- When: 最終応答を取得してストリームを完了させる
+- Then: span の output/usage が記録される

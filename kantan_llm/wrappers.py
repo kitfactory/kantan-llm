@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Awaitable, Protocol
+import inspect
+from typing import Any, Awaitable, Callable, Protocol
 
 from openai import AsyncOpenAI
 
-from .errors import WrongAPIError
+from .errors import NotSupportedError, WrongAPIError
 from .tracing import default_workflow_name
 from .tracing.create import dump_for_tracing, generation_span, get_current_trace
 from .tracing.sanitize import sanitize_text
@@ -71,6 +72,7 @@ class _ChatAPI:
 @dataclass(frozen=True)
 class _AsyncResponsesAPI:
     _create: _AsyncCreateCallable
+    _stream: Callable[..., Any] | None
     _default_model: str
 
     async def create(self, *args: Any, **kwargs: Any) -> Any:
@@ -84,10 +86,27 @@ class _AsyncResponsesAPI:
             kwargs=kwargs,
         )
 
+    def stream(self, *args: Any, **kwargs: Any) -> "_AsyncTracedStream":
+        if "model" not in kwargs:
+            kwargs["model"] = self._default_model
+        if self._stream is not None:
+            stream_factory = lambda: self._stream(*args, **kwargs)
+        else:
+            kwargs.setdefault("stream", True)
+            stream_factory = lambda: self._create(*args, **kwargs)
+        return _traced_llm_stream_async(
+            api_kind="responses",
+            default_model=self._default_model,
+            stream_factory=stream_factory,
+            args=args,
+            kwargs=kwargs,
+        )
+
 
 @dataclass(frozen=True)
 class _AsyncChatCompletionsAPI:
     _create: _AsyncCreateCallable
+    _stream: Callable[..., Any] | None
     _default_model: str
 
     async def create(self, *args: Any, **kwargs: Any) -> Any:
@@ -97,6 +116,22 @@ class _AsyncChatCompletionsAPI:
             api_kind="chat.completions",
             default_model=self._default_model,
             create_callable=self._create,
+            args=args,
+            kwargs=kwargs,
+        )
+
+    def stream(self, *args: Any, **kwargs: Any) -> "_AsyncTracedStream":
+        if "model" not in kwargs:
+            kwargs["model"] = self._default_model
+        if self._stream is not None:
+            stream_factory = lambda: self._stream(*args, **kwargs)
+        else:
+            kwargs.setdefault("stream", True)
+            stream_factory = lambda: self._create(*args, **kwargs)
+        return _traced_llm_stream_async(
+            api_kind="chat.completions",
+            default_model=self._default_model,
+            stream_factory=stream_factory,
             args=args,
             kwargs=kwargs,
         )
@@ -164,7 +199,8 @@ class KantanAsyncLLM:
     def responses(self) -> _AsyncResponsesAPI:
         if self.provider != "openai":
             raise WrongAPIError(f"[kantan-llm][E6] Responses API is not enabled for provider: {self.provider}")
-        return _AsyncResponsesAPI(_create=self.client.responses.create, _default_model=self.model)
+        stream_method = getattr(self.client.responses, "stream", None)
+        return _AsyncResponsesAPI(_create=self.client.responses.create, _stream=stream_method, _default_model=self.model)
 
     @property
     def chat(self) -> _AsyncChatAPI:
@@ -173,7 +209,11 @@ class KantanAsyncLLM:
                 f"[kantan-llm][E7] Chat Completions API is not enabled for provider: {self.provider}"
             )
         return _AsyncChatAPI(
-            completions=_AsyncChatCompletionsAPI(_create=self.client.chat.completions.create, _default_model=self.model)
+            completions=_AsyncChatCompletionsAPI(
+                _create=self.client.chat.completions.create,
+                _stream=getattr(self.client.chat.completions, "stream", None),
+                _default_model=self.model,
+            )
         )
 
 
@@ -263,6 +303,43 @@ async def _traced_llm_create_async(
     )
 
 
+def _traced_llm_stream_async(
+    *,
+    api_kind: str,
+    default_model: str,
+    stream_factory: Callable[[], Any],
+    args: tuple[Any, ...],
+    kwargs: dict[str, Any],
+) -> "_AsyncTracedStream":
+    # Japanese/English: with traceが無い場合は自動でTraceを作る / Auto-create trace if none exists.
+    current = get_current_trace()
+    auto_trace: Trace | None = None
+    if current is None:
+        from .tracing import trace as trace_factory
+
+        auto_trace = trace_factory(default_workflow_name)
+        auto_trace.start(mark_as_current=True)
+
+    model = kwargs.get("model") or default_model
+    input_payload = _extract_input(api_kind=api_kind, args=args, kwargs=kwargs)
+    input_text = sanitize_text(dump_for_tracing(input_payload))
+
+    span = generation_span(
+        input=input_text,
+        output=None,
+        model=model,
+        parent=auto_trace if auto_trace is not None else None,
+    )
+    span.start(mark_as_current=True)
+
+    return _AsyncTracedStream(
+        stream_factory=stream_factory,
+        api_kind=api_kind,
+        span=span,
+        auto_trace=auto_trace,
+    )
+
+
 def _run_with_generation_span(
     *,
     parent_trace: Trace | None,
@@ -325,6 +402,242 @@ async def _run_with_generation_span_async(
             span.span_data.output_raw = output_raw
             span.span_data.usage = _extract_usage(api_kind=api_kind, response=result)
         return result
+
+
+class _AsyncTracedStream:
+    def __init__(
+        self,
+        *,
+        stream_factory: Callable[[], Any],
+        api_kind: str,
+        span: Any,
+        auto_trace: Trace | None,
+    ) -> None:
+        self._stream_factory = stream_factory
+        self._api_kind = api_kind
+        self._span = span
+        self._auto_trace = auto_trace
+        self._stream_obj: Any | None = None
+        self._aiter: Any | None = None
+        self._final_response: Any | None = None
+        self._text_parts: list[str] = []
+        self._output_item_text_parts: list[str] = []
+        self._final_text_override: str | None = None
+        self._closed = False
+
+    # Japanese/English: 未解決のstreamは遅延で解決する / Lazily resolve stream object.
+    async def _ensure_stream(self) -> Any:
+        if self._stream_obj is not None:
+            return self._stream_obj
+        stream_obj = self._stream_factory()
+        if inspect.isawaitable(stream_obj):
+            stream_obj = await stream_obj
+        self._stream_obj = stream_obj
+        return stream_obj
+
+    async def __aenter__(self) -> "_AsyncTracedStream":
+        try:
+            stream_obj = await self._ensure_stream()
+            if hasattr(stream_obj, "__aenter__"):
+                stream_obj = await stream_obj.__aenter__()
+                self._stream_obj = stream_obj
+            return self
+        except Exception as e:
+            self._record_error(e)
+            await self._finalize()
+            raise
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        try:
+            if exc_val is not None:
+                self._record_error(exc_val)
+            try:
+                stream_obj = await self._ensure_stream()
+            except Exception as e:
+                self._record_error(e)
+                return False
+            if hasattr(stream_obj, "__aexit__"):
+                return await stream_obj.__aexit__(exc_type, exc_val, exc_tb)
+            return False
+        finally:
+            await self._finalize()
+
+    def __aiter__(self) -> "_AsyncTracedStream":
+        return self
+
+    async def __anext__(self) -> Any:
+        try:
+            stream_obj = await self._ensure_stream()
+        except Exception as e:
+            self._record_error(e)
+            await self._finalize()
+            raise
+        if self._aiter is None:
+            if hasattr(stream_obj, "__aiter__"):
+                self._aiter = stream_obj.__aiter__()
+            else:
+                await self._finalize()
+                raise StopAsyncIteration
+        try:
+            item = await self._aiter.__anext__()
+            self._collect_event_output(item)
+            return item
+        except StopAsyncIteration:
+            await self._finalize()
+            raise
+        except Exception as e:
+            self._record_error(e)
+            await self._finalize()
+            raise
+
+    async def get_final_response(self) -> Any:
+        try:
+            stream_obj = await self._ensure_stream()
+        except Exception as e:
+            self._record_error(e)
+            await self._finalize()
+            raise
+        getter = getattr(stream_obj, "get_final_response", None)
+        if getter is None:
+            raise NotSupportedError("stream.get_final_response")
+        result = getter()
+        if inspect.isawaitable(result):
+            result = await result
+        self._final_response = result
+        await self._finalize()
+        return result
+
+    def __getattr__(self, name: str) -> Any:
+        if self._stream_obj is None:
+            raise AttributeError(name)
+        return getattr(self._stream_obj, name)
+
+    def _record_error(self, err: Exception) -> None:
+        self._span.set_error({"message": str(err), "data": {"api_kind": self._api_kind}})
+
+    async def _finalize(self) -> None:
+        if self._closed:
+            return
+        self._closed = True
+
+        if self._final_response is None:
+            response = await self._try_get_final_response()
+            if response is not None:
+                self._final_response = response
+
+        output_raw: Any | None = None
+        output_text: str | None = None
+        if self._final_response is not None:
+            output_raw = _extract_output(api_kind=self._api_kind, response=self._final_response)
+            output_text = sanitize_text(dump_for_tracing(output_raw))
+        elif self._final_text_override is not None:
+            output_raw = self._final_text_override
+            output_text = self._final_text_override
+        elif self._text_parts:
+            output_raw = "".join(self._text_parts)
+            output_text = output_raw
+        elif self._output_item_text_parts:
+            output_raw = "".join(self._output_item_text_parts)
+            output_text = output_raw
+
+        if output_text is not None and isinstance(self._span.span_data, GenerationSpanData):
+            self._span.span_data.output = output_text
+            self._span.span_data.output_raw = output_raw
+            if self._final_response is not None:
+                self._span.span_data.usage = _extract_usage(api_kind=self._api_kind, response=self._final_response)
+
+        self._span.finish(reset_current=True)
+        if self._auto_trace is not None:
+            self._auto_trace.finish(reset_current=True)
+
+    async def _try_get_final_response(self) -> Any | None:
+        stream_obj = await self._ensure_stream()
+        getter = getattr(stream_obj, "get_final_response", None)
+        if getter is None:
+            return None
+        try:
+            result = getter()
+            if inspect.isawaitable(result):
+                result = await result
+            return result
+        except Exception:
+            return None
+
+    def _collect_event_output(self, event: Any) -> None:
+        # Japanese/English: streamingイベントからテキストを回収 / Collect text from stream events.
+        event_type = _get_event_attr(event, "type")
+        if event_type == "response.completed":
+            response = _get_event_attr(event, "response")
+            if response is not None:
+                self._final_response = response
+
+        text = _extract_stream_text(api_kind=self._api_kind, event=event)
+        if text is None:
+            output_item_texts = _extract_output_item_text(event=event)
+            if output_item_texts and event_type == "response.output_item.done":
+                self._output_item_text_parts.extend(output_item_texts)
+            return
+        if event_type == "response.output_text.done":
+            self._final_text_override = text
+            return
+        self._text_parts.append(text)
+
+
+def _get_event_attr(event: Any, name: str) -> Any:
+    if isinstance(event, dict):
+        return event.get(name)
+    return getattr(event, name, None)
+
+
+def _extract_stream_text(*, api_kind: str, event: Any) -> str | None:
+    event_type = _get_event_attr(event, "type")
+    if event_type and "output_text" in event_type:
+        delta = _get_event_attr(event, "delta")
+        if isinstance(delta, str) and delta:
+            return delta
+        text = _get_event_attr(event, "text")
+        if isinstance(text, str) and text:
+            return text
+
+    if api_kind == "chat.completions":
+        choices = _get_event_attr(event, "choices")
+        if choices:
+            first = choices[0]
+            delta = _get_event_attr(first, "delta")
+            content = _get_event_attr(delta, "content") if delta is not None else _get_event_attr(first, "content")
+            if isinstance(content, str) and content:
+                return content
+
+    delta = _get_event_attr(event, "delta")
+    if isinstance(delta, str) and delta:
+        return delta
+
+    return None
+
+
+def _extract_output_item_text(*, event: Any) -> list[str] | None:
+    # Japanese/English: output_itemのcontentからテキストを抽出 / Extract text from output_item content.
+    item = _get_event_attr(event, "item") or _get_event_attr(event, "output_item")
+    if item is None:
+        return None
+    content = _get_event_attr(item, "content")
+    if not content:
+        return None
+
+    parts = content if isinstance(content, (list, tuple)) else [content]
+    texts: list[str] = []
+    for part in parts:
+        part_type = _get_event_attr(part, "type")
+        if part_type == "output_text":
+            text = _get_event_attr(part, "text")
+            if isinstance(text, str) and text:
+                texts.append(text)
+        elif part_type == "refusal":
+            refusal = _get_event_attr(part, "refusal")
+            if isinstance(refusal, str) and refusal:
+                texts.append(refusal)
+
+    return texts or None
 
 
 def _extract_input(*, api_kind: str, args: tuple[Any, ...], kwargs: dict[str, Any]) -> Any:

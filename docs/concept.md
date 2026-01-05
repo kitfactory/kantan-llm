@@ -38,7 +38,7 @@ kantan-llm の推奨パスは **同期（sync）**のラッパー経由の利用
 
 ### Non-goals（Paved path の非ゴール）
 - Async-first API（最初から async 前提の設計）
-- Streaming の保証（このフェーズでは扱わない）
+- Streaming の保証（sync / paved path では扱わない）
 
 ### Escape hatches（例外導線）
 ASGI（FastAPI / Starlette 等）で event loop をブロックしないために、Async は **escape hatch（例外導線）**として提供します。Async には 2 段階あります。
@@ -51,6 +51,7 @@ ASGI（FastAPI / Starlette 等）で event loop をブロックしないため�
 2) **KantanAsyncLLM（ガードあり / 自動トレースあり）**
 - 同期版（KantanLLM）と同等の保証（正規化/フォールバック/ガード/トレース）を提供する async ラッパーです。
 - ただし Agents SDK 側にもトレーシング機構があるため、二重計測にならないよう “どちらでトレースするか” を明示します（後述）。
+- streaming API を提供し、最終応答でまとめてトレースします（チャンク単位のトレースはしない）。
 
 ### OpenAI Agents SDK 連携（設計の前提）
 Async escape hatch は **OpenAI Agents SDK で “任意の AsyncOpenAI client を差し替える”**用途を想定します。
@@ -98,7 +99,7 @@ Agents SDK 側にもトレーシング無効化の導線があるため、運用
 
 ### 将来（今回は不要）
 
-- Streaming
+- Streaming（sync / paved path）
 - Async-first API
 - structured output
 - retry/backoff
@@ -135,6 +136,7 @@ Agents SDK 側にもトレーシング無効化の導線があるため、運用
   - `get_async_llm_client`（raw async bundle）を提供する
   - `get_async_llm`（KantanAsyncLLM）を提供する
   - sync/async の resolver parity を保証する
+  - KantanAsyncLLM の streaming API とまとめトレースを整備する
   - Agents SDK 連携例と二重トレース方針を整備する
 
 
