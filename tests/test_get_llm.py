@@ -36,6 +36,13 @@ def test_openai_prefix_strips_model(monkeypatch):
     assert llm.model == "gpt-4.1-mini"
 
 
+def test_gpt_oss_prefix_is_preserved_for_openai_provider(monkeypatch):
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+    llm = get_llm("openai/gpt-oss-20b", provider="openai")
+    assert llm.provider == "openai"
+    assert llm.model == "openai/gpt-oss-20b"
+
+
 def test_gpt_oss_inference_uses_env_fallback(monkeypatch):
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     monkeypatch.delenv("CLAUDE_API_KEY", raising=False)

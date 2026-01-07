@@ -91,6 +91,7 @@
 - When: `get_llm(model)` を呼ぶ
 - Then: provider=`openai` を選択する
 - And: provider が `openai` のとき、実際のAPI呼び出しに使うモデル名は `openai/` を除いた値とする
+- And: ただし `gpt-oss-*` の場合は `openai/` をモデル名の一部として扱い保持する
 - And: provider を明示指定して `openai` 以外を選ぶ場合、`openai/` はモデル名の一部として扱い保持してよい（例: LMStudio等）
 - And: `gpt-oss-*` の場合は 3.1.1 の推測方針を優先する
 

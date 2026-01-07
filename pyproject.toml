@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "kantan-llm"
-version = "0.1.8"
+version = "0.1.9"
 description = "Minimal LLM client getter for OpenAI Responses + OpenAI-compatible Chat Completions."
 readme = "README.md"
 requires-python = ">=3.10"

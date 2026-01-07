@@ -142,7 +142,8 @@ def _resolve_model_for_provider(
     bare_model: str,
     provider_name: str,
 ) -> str:
-    if prefixed_provider is not None and prefixed_provider == provider_name:
+    lower_bare = bare_model.lower()
+    if prefixed_provider is not None and prefixed_provider == provider_name and not lower_bare.startswith("gpt-oss"):
         return bare_model
 
     if "/" in raw_model:
