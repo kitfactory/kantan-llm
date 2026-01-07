@@ -77,7 +77,7 @@ Agents SDK 側にもトレーシング無効化の導線があるため、運用
 | Spec ID | 機能名 | 概要 | 依存 | MVP | Phase |
 |---|---|---|---|---|---|
 | F1 | `get_llm(model, **options)` | モデル名からLLMクライアントを取得する | F2, F3, F4, F5 | ✅ | 0.1 |
-| F2 | プロバイダー推測 | `gpt-*`→OpenAI、`claude-*`/`gemini-*`→互換（Chat）など | - | ✅ | 0.1 |
+| F2 | プロバイダー推測 | `gpt-*`（`gpt-oss-*`除く）→OpenAI、`gpt-oss-*`→推測固定しない、`claude-*`/`gemini-*`→互換（Chat）など | - | ✅ | 0.1 |
 | F3 | API採用方針 | OpenAIはResponses、非OpenAIはChat Completions互換を正本にする | - | ✅ | 0.1 |
 | F4 | 環境変数設定 | `OPENAI_*` と（LMStudio/Ollama/OpenRouter等の）環境変数を読む | - | ✅ | 0.1 |
 | F5 | 明示指定（上書き） | `provider=` / `providers=` で推測を上書きする | F2 | ✅ | 0.1 |

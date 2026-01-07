@@ -36,11 +36,38 @@ def test_openai_prefix_strips_model(monkeypatch):
     assert llm.model == "gpt-4.1-mini"
 
 
+def test_gpt_oss_inference_uses_env_fallback(monkeypatch):
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv("CLAUDE_API_KEY", raising=False)
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+    monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
+    monkeypatch.delenv("OLLAMA_BASE_URL", raising=False)
+    monkeypatch.setenv("LMSTUDIO_BASE_URL", "http://localhost:1234")
+
+    llm = get_llm("openai/gpt-oss-20b")
+    assert llm.provider == "lmstudio"
+    assert llm.model == "openai/gpt-oss-20b"
+
+
 def test_missing_openai_key_is_clear(monkeypatch):
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     with pytest.raises(MissingConfigError) as exc:
         get_llm("gpt-4.1-mini")
     assert str(exc.value) == "[kantan-llm][E2] Missing OPENAI_API_KEY for provider: openai"
+
+
+def test_missing_openai_key_has_context(monkeypatch):
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv("OPENAI_BASE_URL", raising=False)
+    with pytest.raises(MissingConfigError) as exc:
+        get_llm("gpt-4.1-mini")
+    ctx = getattr(exc.value, "kantan_llm_context", None)
+    assert ctx == {
+        "provider": "openai",
+        "base_url": None,
+        "api_key_present": False,
+        "model": "gpt-4.1-mini",
+    }
 
 
 def test_compat_inference_and_guard(monkeypatch):
@@ -148,6 +175,35 @@ def test_llm_delegates_unknown_attrs(monkeypatch):
     llm = get_llm("gpt-4.1-mini")
     assert llm.foo == "bar"
     assert llm.models.list() == ["ok"]
+
+
+def test_llm_call_error_has_context(monkeypatch):
+    monkeypatch.setenv("KANTAN_LLM_BASE_URL", "http://localhost:8000/v1")
+    monkeypatch.delenv("KANTAN_LLM_API_KEY", raising=False)
+
+    class DummyChatCompletions:
+        def create(self, *args, **kwargs):
+            raise RuntimeError("boom")
+
+    class DummyChat:
+        completions = DummyChatCompletions()
+
+    class DummyClient:
+        def __init__(self):
+            self.chat = DummyChat()
+
+    monkeypatch.setattr("kantan_llm.OpenAI", lambda **kwargs: DummyClient())
+
+    llm = get_llm("claude-3-5-sonnet-latest", provider="compat")
+    with pytest.raises(RuntimeError) as exc:
+        llm.chat.completions.create(messages=[{"role": "user", "content": "hi"}])
+    ctx = getattr(exc.value, "kantan_llm_context", None)
+    assert ctx == {
+        "provider": "compat",
+        "base_url": "http://localhost:8000/v1",
+        "api_key_present": False,
+        "model": "claude-3-5-sonnet-latest",
+    }
 
 
 def test_async_client_bundle_normalizes_openai_prefix(monkeypatch):

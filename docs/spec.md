@@ -41,11 +41,19 @@
 
 ## 3. プロバイダー推測（F2）
 
-### 3.1 `gpt-*` を指定した場合、OpenAIとして扱う（F2）
+### 3.1 `gpt-*`（`gpt-oss-*` を除く）を指定した場合、OpenAIとして扱う（F2）
 
 - Given: `model` が `gpt-` で始まる
 - When: `get_llm(model)` を呼ぶ
 - Then: provider=`openai` を選択する
+
+### 3.1.1 `gpt-oss-*` を指定した場合、プロバイダー推測を固定しない（F2）
+
+- Given: `model` が `gpt-oss-` で始まる
+- When: `get_llm(model)` を呼ぶ（`provider` / `providers` 未指定）
+- Then: provider 推測は `openai` に固定しない
+- And: 利用可能な環境変数の候補を優先順で評価する
+- And: 候補が存在しない場合は ProviderInferenceError（E1）を送出する
 
 ### 3.2 `claude-*` を指定した場合、互換（Chat）として扱う（F2）
 
@@ -84,6 +92,7 @@
 - Then: provider=`openai` を選択する
 - And: provider が `openai` のとき、実際のAPI呼び出しに使うモデル名は `openai/` を除いた値とする
 - And: provider を明示指定して `openai` 以外を選ぶ場合、`openai/` はモデル名の一部として扱い保持してよい（例: LMStudio等）
+- And: `gpt-oss-*` の場合は 3.1.1 の推測方針を優先する
 
 ## 4. API採用方針（F3）
 

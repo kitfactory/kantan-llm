@@ -110,7 +110,8 @@ print(cc.choices[0].message.content)
 
 ## Provider rules 🧭
 
-- `gpt-*` → `openai`
+- `gpt-oss-*` → no fixed provider (uses env fallback; set `provider=` if needed)
+- `gpt-*` (except `gpt-oss-*`) → `openai`
 - `gemini-*` → `google`
 - `claude-*` → `anthropic` (if `CLAUDE_API_KEY` is set) → `openrouter` (if `OPENROUTER_API_KEY` is set) → otherwise `compat`
 - If the model name is not recognizable, it picks the first available provider by env vars: `lmstudio` → `ollama` → `openrouter` → `anthropic` → `google`

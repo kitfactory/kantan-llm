@@ -3,8 +3,22 @@ from __future__ import annotations
 from dataclasses import dataclass
 import os
 
-from .errors import InvalidOptionsError, MissingConfigError, ProviderInferenceError, ProviderUnavailableError
-from .providers import infer_provider_from_model, normalize_providers, resolve_provider_config, split_model_prefix
+from .errors import (
+    InvalidOptionsError,
+    LLMErrorContext,
+    MissingConfigError,
+    ProviderInferenceError,
+    ProviderUnavailableError,
+    attach_error_context,
+)
+from .providers import (
+    _is_api_key_present,
+    _resolve_base_url_for_provider,
+    infer_provider_from_model,
+    normalize_providers,
+    resolve_provider_config,
+    split_model_prefix,
+)
 
 
 @dataclass(frozen=True)
@@ -13,6 +27,7 @@ class ResolvedLLM:
     model: str
     api_key: str
     base_url: str | None
+    api_key_present: bool
 
 
 def resolve_llm(
@@ -33,14 +48,33 @@ def resolve_llm(
 
     if providers is None:
         candidate = candidates[0]
-        cfg = resolve_provider_config(provider=candidate, api_key=api_key, base_url=base_url)
+        try:
+            cfg = resolve_provider_config(provider=candidate, api_key=api_key, base_url=base_url)
+        except MissingConfigError as e:
+            attach_error_context(
+                e,
+                _build_error_context(
+                    provider=candidate,
+                    model=raw_model,
+                    api_key=api_key,
+                    base_url=base_url,
+                ),
+            )
+            raise
         used_model = _resolve_model_for_provider(
             raw_model=raw_model,
             prefixed_provider=prefixed_provider,
             bare_model=bare_model,
             provider_name=cfg.provider,
         )
-        return ResolvedLLM(provider=cfg.provider, model=used_model, api_key=cfg.api_key, base_url=cfg.base_url)
+        api_key_present = _is_api_key_present(cfg.provider, api_key)
+        return ResolvedLLM(
+            provider=cfg.provider,
+            model=used_model,
+            api_key=cfg.api_key,
+            base_url=cfg.base_url,
+            api_key_present=api_key_present,
+        )
 
     reasons: list[str] = []
     for candidate in candidates:
@@ -52,8 +86,24 @@ def resolve_llm(
                 bare_model=bare_model,
                 provider_name=cfg.provider,
             )
-            return ResolvedLLM(provider=cfg.provider, model=used_model, api_key=cfg.api_key, base_url=cfg.base_url)
+            api_key_present = _is_api_key_present(cfg.provider, api_key)
+            return ResolvedLLM(
+                provider=cfg.provider,
+                model=used_model,
+                api_key=cfg.api_key,
+                base_url=cfg.base_url,
+                api_key_present=api_key_present,
+            )
         except MissingConfigError as e:
+            attach_error_context(
+                e,
+                _build_error_context(
+                    provider=candidate,
+                    model=raw_model,
+                    api_key=api_key,
+                    base_url=base_url,
+                ),
+            )
             reasons.append(str(e))
             continue
 
@@ -118,3 +168,18 @@ def _resolve_model_for_provider(
         return aliases.get(raw_model, raw_model)
 
     return raw_model
+
+
+def _build_error_context(
+    *,
+    provider: str,
+    model: str,
+    api_key: str | None,
+    base_url: str | None,
+) -> LLMErrorContext:
+    return LLMErrorContext(
+        provider=provider,
+        base_url=_resolve_base_url_for_provider(provider, base_url),
+        api_key_present=_is_api_key_present(provider, api_key),
+        model=model,
+    )

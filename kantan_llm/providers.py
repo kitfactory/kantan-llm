@@ -40,10 +40,14 @@ def infer_provider_from_model(model: str) -> ProviderName:
     """
 
     prefixed_provider, bare_model = split_model_prefix(model)
+
+    lower = bare_model.lower()
+    if lower.startswith("gpt-oss"):
+        raise ProviderInferenceError(model)
+
     if prefixed_provider is not None:
         return _canonical_provider(prefixed_provider)
 
-    lower = bare_model.lower()
     if lower.startswith("gpt-"):
         return "openai"
     if lower.startswith("claude-"):
@@ -78,6 +82,45 @@ def _normalize_compat_base_url(base_url: str) -> str:
     return normalized.rstrip("/")
 
 
+def _resolve_base_url_for_provider(provider: ProviderName, base_url: str | None) -> str | None:
+    provider = _canonical_provider(provider)
+    if provider == "openai":
+        return base_url or os.getenv("OPENAI_BASE_URL")
+    if provider == "anthropic":
+        return base_url or os.getenv("CLAUDE_BASE_URL") or "https://api.anthropic.com/v1"
+    if provider == "google":
+        return base_url or os.getenv("GOOGLE_BASE_URL") or "https://generativelanguage.googleapis.com/v1beta/openai"
+    if provider == "compat":
+        resolved = base_url or os.getenv("KANTAN_LLM_BASE_URL")
+        return _normalize_compat_base_url(resolved) if resolved else None
+    if provider == "lmstudio":
+        resolved = base_url or os.getenv("LMSTUDIO_BASE_URL")
+        return _normalize_compat_base_url(resolved) if resolved else None
+    if provider == "ollama":
+        resolved = base_url or os.getenv("OLLAMA_BASE_URL")
+        return _normalize_compat_base_url(resolved) if resolved else None
+    if provider == "openrouter":
+        return base_url or "https://openrouter.ai/api/v1"
+    return base_url
+
+
+def _is_api_key_present(provider: ProviderName, api_key: str | None) -> bool:
+    provider = _canonical_provider(provider)
+    if api_key:
+        return True
+    if provider == "openai":
+        return bool(os.getenv("OPENAI_API_KEY"))
+    if provider == "anthropic":
+        return bool(os.getenv("CLAUDE_API_KEY"))
+    if provider == "google":
+        return bool(os.getenv("GOOGLE_API_KEY"))
+    if provider == "openrouter":
+        return bool(os.getenv("OPENROUTER_API_KEY"))
+    if provider in {"compat", "lmstudio", "ollama"}:
+        return bool(os.getenv("KANTAN_LLM_API_KEY"))
+    return False
+
+
 def resolve_provider_config(
     *,
     provider: ProviderName,
@@ -94,50 +137,47 @@ def resolve_provider_config(
         resolved_api_key = api_key or os.getenv("OPENAI_API_KEY")
         if not resolved_api_key:
             raise MissingConfigError("[kantan-llm][E2] Missing OPENAI_API_KEY for provider: openai")
-        resolved_base_url = base_url or os.getenv("OPENAI_BASE_URL")
+        resolved_base_url = _resolve_base_url_for_provider(provider, base_url)
         return ProviderConfig(provider=provider, api_key=resolved_api_key, base_url=resolved_base_url)
 
     if provider == "anthropic":
         resolved_api_key = api_key or os.getenv("CLAUDE_API_KEY")
         if not resolved_api_key:
             raise MissingConfigError("[kantan-llm][E13] Missing CLAUDE_API_KEY for provider: anthropic")
-        resolved_base_url = base_url or os.getenv("CLAUDE_BASE_URL") or "https://api.anthropic.com/v1"
+        resolved_base_url = _resolve_base_url_for_provider(provider, base_url)
         return ProviderConfig(provider=provider, api_key=resolved_api_key, base_url=resolved_base_url)
 
     if provider == "google":
         resolved_api_key = api_key or os.getenv("GOOGLE_API_KEY")
         if not resolved_api_key:
             raise MissingConfigError("[kantan-llm][E12] Missing GOOGLE_API_KEY for provider: google")
-        resolved_base_url = base_url or os.getenv("GOOGLE_BASE_URL") or "https://generativelanguage.googleapis.com/v1beta/openai"
+        resolved_base_url = _resolve_base_url_for_provider(provider, base_url)
         return ProviderConfig(provider=provider, api_key=resolved_api_key, base_url=resolved_base_url)
 
     if provider == "compat":
-        resolved_base_url = base_url or os.getenv("KANTAN_LLM_BASE_URL")
+        resolved_base_url = _resolve_base_url_for_provider(provider, base_url)
         if not resolved_base_url:
             raise MissingConfigError(
                 "[kantan-llm][E3] Missing base_url (set KANTAN_LLM_BASE_URL or base_url=...) for provider: compat"
             )
-        resolved_base_url = _normalize_compat_base_url(resolved_base_url)
         resolved_api_key = api_key or os.getenv("KANTAN_LLM_API_KEY") or "DUMMY"
         return ProviderConfig(provider=provider, api_key=resolved_api_key, base_url=resolved_base_url)
 
     if provider == "lmstudio":
-        resolved_base_url = base_url or os.getenv("LMSTUDIO_BASE_URL")
+        resolved_base_url = _resolve_base_url_for_provider(provider, base_url)
         if not resolved_base_url:
             raise MissingConfigError(
                 "[kantan-llm][E9] Missing base_url (set LMSTUDIO_BASE_URL or base_url=...) for provider: lmstudio"
             )
-        resolved_base_url = _normalize_compat_base_url(resolved_base_url)
         resolved_api_key = api_key or os.getenv("KANTAN_LLM_API_KEY") or "DUMMY"
         return ProviderConfig(provider=provider, api_key=resolved_api_key, base_url=resolved_base_url)
 
     if provider == "ollama":
-        resolved_base_url = base_url or os.getenv("OLLAMA_BASE_URL")
+        resolved_base_url = _resolve_base_url_for_provider(provider, base_url)
         if not resolved_base_url:
             raise MissingConfigError(
                 "[kantan-llm][E10] Missing base_url (set OLLAMA_BASE_URL or base_url=...) for provider: ollama"
             )
-        resolved_base_url = _normalize_compat_base_url(resolved_base_url)
         resolved_api_key = api_key or os.getenv("KANTAN_LLM_API_KEY") or "DUMMY"
         return ProviderConfig(provider=provider, api_key=resolved_api_key, base_url=resolved_base_url)
 
@@ -147,7 +187,7 @@ def resolve_provider_config(
             raise MissingConfigError(
                 "[kantan-llm][E11] Missing OPENROUTER_API_KEY for provider: openrouter"
             )
-        resolved_base_url = base_url or "https://openrouter.ai/api/v1"
+        resolved_base_url = _resolve_base_url_for_provider(provider, base_url)
         return ProviderConfig(provider=provider, api_key=resolved_api_key, base_url=resolved_base_url)
 
     raise UnsupportedProviderError(provider)

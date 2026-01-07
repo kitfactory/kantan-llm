@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
+from typing import Any
+
 
 class KantanLLMError(RuntimeError):
     """Base error for kantan-llm. / kantan-llm の基底例外。"""
@@ -60,3 +63,29 @@ class NotSupportedError(KantanLLMError):
 
     def __init__(self, feature: str):
         super().__init__(f"[kantan-llm][E16] Not supported: {feature}")
+
+
+@dataclass(frozen=True)
+class LLMErrorContext:
+    provider: str | None
+    base_url: str | None
+    api_key_present: bool | None
+    model: str | None
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "provider": self.provider,
+            "base_url": self.base_url,
+            "api_key_present": self.api_key_present,
+            "model": self.model,
+        }
+
+
+def attach_error_context(err: Exception, context: LLMErrorContext | None) -> Exception:
+    if context is None:
+        return err
+    try:
+        setattr(err, "kantan_llm_context", context.as_dict())
+    except Exception:
+        return err
+    return err

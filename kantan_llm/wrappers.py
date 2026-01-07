@@ -6,7 +6,7 @@ from typing import Any, Awaitable, Callable, Protocol
 
 from openai import AsyncOpenAI
 
-from .errors import NotSupportedError, WrongAPIError
+from .errors import LLMErrorContext, NotSupportedError, WrongAPIError, attach_error_context
 from .tracing import default_workflow_name
 from .tracing.create import dump_for_tracing, generation_span, get_current_trace
 from .tracing.sanitize import sanitize_text
@@ -30,10 +30,43 @@ class AsyncClientBundle:
     base_url: str | None
 
 
+def _build_error_context(
+    *,
+    provider: str,
+    base_url: str | None,
+    api_key_present: bool,
+    model: str,
+) -> LLMErrorContext:
+    return LLMErrorContext(
+        provider=provider,
+        base_url=base_url,
+        api_key_present=api_key_present,
+        model=model,
+    )
+
+
+def _set_span_error(
+    *,
+    span: Any,
+    err: Exception,
+    api_kind: str,
+    context: LLMErrorContext | None,
+) -> None:
+    if context is not None:
+        attach_error_context(err, context)
+    error_data: dict[str, Any] = {"api_kind": api_kind}
+    if context is not None:
+        error_data["llm_context"] = context.as_dict()
+    span.set_error({"message": str(err), "data": error_data})
+
+
 @dataclass(frozen=True)
 class _ResponsesAPI:
     _create: _CreateCallable
     _default_model: str
+    _provider: str
+    _base_url: str | None
+    _api_key_present: bool
 
     def create(self, *args: Any, **kwargs: Any) -> Any:
         if "model" not in kwargs:
@@ -41,6 +74,9 @@ class _ResponsesAPI:
         return _traced_llm_create(
             api_kind="responses",
             default_model=self._default_model,
+            provider=self._provider,
+            base_url=self._base_url,
+            api_key_present=self._api_key_present,
             create_callable=self._create,
             args=args,
             kwargs=kwargs,
@@ -51,6 +87,9 @@ class _ResponsesAPI:
 class _ChatCompletionsAPI:
     _create: _CreateCallable
     _default_model: str
+    _provider: str
+    _base_url: str | None
+    _api_key_present: bool
 
     def create(self, *args: Any, **kwargs: Any) -> Any:
         if "model" not in kwargs:
@@ -58,6 +97,9 @@ class _ChatCompletionsAPI:
         return _traced_llm_create(
             api_kind="chat.completions",
             default_model=self._default_model,
+            provider=self._provider,
+            base_url=self._base_url,
+            api_key_present=self._api_key_present,
             create_callable=self._create,
             args=args,
             kwargs=kwargs,
@@ -74,6 +116,9 @@ class _AsyncResponsesAPI:
     _create: _AsyncCreateCallable
     _stream: Callable[..., Any] | None
     _default_model: str
+    _provider: str
+    _base_url: str | None
+    _api_key_present: bool
 
     async def create(self, *args: Any, **kwargs: Any) -> Any:
         if "model" not in kwargs:
@@ -81,6 +126,9 @@ class _AsyncResponsesAPI:
         return await _traced_llm_create_async(
             api_kind="responses",
             default_model=self._default_model,
+            provider=self._provider,
+            base_url=self._base_url,
+            api_key_present=self._api_key_present,
             create_callable=self._create,
             args=args,
             kwargs=kwargs,
@@ -97,6 +145,9 @@ class _AsyncResponsesAPI:
         return _traced_llm_stream_async(
             api_kind="responses",
             default_model=self._default_model,
+            provider=self._provider,
+            base_url=self._base_url,
+            api_key_present=self._api_key_present,
             stream_factory=stream_factory,
             args=args,
             kwargs=kwargs,
@@ -108,6 +159,9 @@ class _AsyncChatCompletionsAPI:
     _create: _AsyncCreateCallable
     _stream: Callable[..., Any] | None
     _default_model: str
+    _provider: str
+    _base_url: str | None
+    _api_key_present: bool
 
     async def create(self, *args: Any, **kwargs: Any) -> Any:
         if "model" not in kwargs:
@@ -115,6 +169,9 @@ class _AsyncChatCompletionsAPI:
         return await _traced_llm_create_async(
             api_kind="chat.completions",
             default_model=self._default_model,
+            provider=self._provider,
+            base_url=self._base_url,
+            api_key_present=self._api_key_present,
             create_callable=self._create,
             args=args,
             kwargs=kwargs,
@@ -131,6 +188,9 @@ class _AsyncChatCompletionsAPI:
         return _traced_llm_stream_async(
             api_kind="chat.completions",
             default_model=self._default_model,
+            provider=self._provider,
+            base_url=self._base_url,
+            api_key_present=self._api_key_present,
             stream_factory=stream_factory,
             args=args,
             kwargs=kwargs,
@@ -152,6 +212,8 @@ class KantanLLM:
     provider: str
     model: str
     client: Any
+    base_url: str | None = None
+    api_key_present: bool = False
 
     # Japanese/English: 未定義属性はOpenAIクライアントへ委譲 / Delegate unknown attrs to OpenAI client.
     def __getattr__(self, name: str) -> Any:
@@ -164,7 +226,13 @@ class KantanLLM:
     def responses(self) -> _ResponsesAPI:
         if self.provider != "openai":
             raise WrongAPIError(f"[kantan-llm][E6] Responses API is not enabled for provider: {self.provider}")
-        return _ResponsesAPI(_create=self.client.responses.create, _default_model=self.model)
+        return _ResponsesAPI(
+            _create=self.client.responses.create,
+            _default_model=self.model,
+            _provider=self.provider,
+            _base_url=self.base_url,
+            _api_key_present=self.api_key_present,
+        )
 
     @property
     def chat(self) -> _ChatAPI:
@@ -173,7 +241,13 @@ class KantanLLM:
                 f"[kantan-llm][E7] Chat Completions API is not enabled for provider: {self.provider}"
             )
         return _ChatAPI(
-            completions=_ChatCompletionsAPI(_create=self.client.chat.completions.create, _default_model=self.model)
+            completions=_ChatCompletionsAPI(
+                _create=self.client.chat.completions.create,
+                _default_model=self.model,
+                _provider=self.provider,
+                _base_url=self.base_url,
+                _api_key_present=self.api_key_present,
+            )
         )
 
 
@@ -187,6 +261,8 @@ class KantanAsyncLLM:
     provider: str
     model: str
     client: Any
+    base_url: str | None = None
+    api_key_present: bool = False
 
     # Japanese/English: 未定義属性はAsyncOpenAIクライアントへ委譲 / Delegate unknown attrs to AsyncOpenAI client.
     def __getattr__(self, name: str) -> Any:
@@ -200,7 +276,14 @@ class KantanAsyncLLM:
         if self.provider != "openai":
             raise WrongAPIError(f"[kantan-llm][E6] Responses API is not enabled for provider: {self.provider}")
         stream_method = getattr(self.client.responses, "stream", None)
-        return _AsyncResponsesAPI(_create=self.client.responses.create, _stream=stream_method, _default_model=self.model)
+        return _AsyncResponsesAPI(
+            _create=self.client.responses.create,
+            _stream=stream_method,
+            _default_model=self.model,
+            _provider=self.provider,
+            _base_url=self.base_url,
+            _api_key_present=self.api_key_present,
+        )
 
     @property
     def chat(self) -> _AsyncChatAPI:
@@ -213,6 +296,9 @@ class KantanAsyncLLM:
                 _create=self.client.chat.completions.create,
                 _stream=getattr(self.client.chat.completions, "stream", None),
                 _default_model=self.model,
+                _provider=self.provider,
+                _base_url=self.base_url,
+                _api_key_present=self.api_key_present,
             )
         )
 
@@ -221,6 +307,9 @@ def _traced_llm_create(
     *,
     api_kind: str,
     default_model: str,
+    provider: str,
+    base_url: str | None,
+    api_key_present: bool,
     create_callable: _CreateCallable,
     args: tuple[Any, ...],
     kwargs: dict[str, Any],
@@ -244,6 +333,9 @@ def _traced_llm_create(
                 model=model,
                 input_text=input_text,
                 api_kind=api_kind,
+                provider=provider,
+                base_url=base_url,
+                api_key_present=api_key_present,
                 create_callable=create_callable,
                 args=args,
                 kwargs=kwargs,
@@ -254,6 +346,9 @@ def _traced_llm_create(
         model=model,
         input_text=input_text,
         api_kind=api_kind,
+        provider=provider,
+        base_url=base_url,
+        api_key_present=api_key_present,
         create_callable=create_callable,
         args=args,
         kwargs=kwargs,
@@ -264,6 +359,9 @@ async def _traced_llm_create_async(
     *,
     api_kind: str,
     default_model: str,
+    provider: str,
+    base_url: str | None,
+    api_key_present: bool,
     create_callable: _AsyncCreateCallable,
     args: tuple[Any, ...],
     kwargs: dict[str, Any],
@@ -287,6 +385,9 @@ async def _traced_llm_create_async(
                 model=model,
                 input_text=input_text,
                 api_kind=api_kind,
+                provider=provider,
+                base_url=base_url,
+                api_key_present=api_key_present,
                 create_callable=create_callable,
                 args=args,
                 kwargs=kwargs,
@@ -297,6 +398,9 @@ async def _traced_llm_create_async(
         model=model,
         input_text=input_text,
         api_kind=api_kind,
+        provider=provider,
+        base_url=base_url,
+        api_key_present=api_key_present,
         create_callable=create_callable,
         args=args,
         kwargs=kwargs,
@@ -307,6 +411,9 @@ def _traced_llm_stream_async(
     *,
     api_kind: str,
     default_model: str,
+    provider: str,
+    base_url: str | None,
+    api_key_present: bool,
     stream_factory: Callable[[], Any],
     args: tuple[Any, ...],
     kwargs: dict[str, Any],
@@ -337,6 +444,12 @@ def _traced_llm_stream_async(
         api_kind=api_kind,
         span=span,
         auto_trace=auto_trace,
+        error_context=_build_error_context(
+            provider=provider,
+            base_url=base_url,
+            api_key_present=api_key_present,
+            model=model,
+        ),
     )
 
 
@@ -346,6 +459,9 @@ def _run_with_generation_span(
     model: str,
     input_text: str,
     api_kind: str,
+    provider: str,
+    base_url: str | None,
+    api_key_present: bool,
     create_callable: _CreateCallable,
     args: tuple[Any, ...],
     kwargs: dict[str, Any],
@@ -360,7 +476,13 @@ def _run_with_generation_span(
         try:
             result = create_callable(*args, **kwargs)
         except Exception as e:
-            span.set_error({"message": str(e), "data": {"api_kind": api_kind}})
+            context = _build_error_context(
+                provider=provider,
+                base_url=base_url,
+                api_key_present=api_key_present,
+                model=model,
+            )
+            _set_span_error(span=span, err=e, api_kind=api_kind, context=context)
             raise
 
         output_raw = _extract_output(api_kind=api_kind, response=result)
@@ -378,6 +500,9 @@ async def _run_with_generation_span_async(
     model: str,
     input_text: str,
     api_kind: str,
+    provider: str,
+    base_url: str | None,
+    api_key_present: bool,
     create_callable: _AsyncCreateCallable,
     args: tuple[Any, ...],
     kwargs: dict[str, Any],
@@ -392,7 +517,13 @@ async def _run_with_generation_span_async(
         try:
             result = await create_callable(*args, **kwargs)
         except Exception as e:
-            span.set_error({"message": str(e), "data": {"api_kind": api_kind}})
+            context = _build_error_context(
+                provider=provider,
+                base_url=base_url,
+                api_key_present=api_key_present,
+                model=model,
+            )
+            _set_span_error(span=span, err=e, api_kind=api_kind, context=context)
             raise
 
         output_raw = _extract_output(api_kind=api_kind, response=result)
@@ -412,11 +543,13 @@ class _AsyncTracedStream:
         api_kind: str,
         span: Any,
         auto_trace: Trace | None,
+        error_context: LLMErrorContext | None,
     ) -> None:
         self._stream_factory = stream_factory
         self._api_kind = api_kind
         self._span = span
         self._auto_trace = auto_trace
+        self._error_context = error_context
         self._stream_obj: Any | None = None
         self._aiter: Any | None = None
         self._final_response: Any | None = None
@@ -513,7 +646,12 @@ class _AsyncTracedStream:
         return getattr(self._stream_obj, name)
 
     def _record_error(self, err: Exception) -> None:
-        self._span.set_error({"message": str(err), "data": {"api_kind": self._api_kind}})
+        _set_span_error(
+            span=self._span,
+            err=err,
+            api_kind=self._api_kind,
+            context=self._error_context,
+        )
 
     async def _finalize(self) -> None:
         if self._closed:

@@ -79,7 +79,13 @@ def get_llm(
         base_url=base_url,
     )
     client = OpenAI(api_key=resolved.api_key, base_url=resolved.base_url, timeout=timeout)
-    return KantanLLM(provider=resolved.provider, model=resolved.model, client=client)
+    return KantanLLM(
+        provider=resolved.provider,
+        model=resolved.model,
+        client=client,
+        base_url=resolved.base_url,
+        api_key_present=resolved.api_key_present,
+    )
 
 
 def get_async_llm(
@@ -123,7 +129,13 @@ def get_async_llm(
         base_url=base_url,
     )
     client = AsyncOpenAI(api_key=resolved.api_key, base_url=resolved.base_url, timeout=timeout)
-    return KantanAsyncLLM(provider=resolved.provider, model=resolved.model, client=client)
+    return KantanAsyncLLM(
+        provider=resolved.provider,
+        model=resolved.model,
+        client=client,
+        base_url=resolved.base_url,
+        api_key_present=resolved.api_key_present,
+    )
 
 
 def get_async_llm_client(

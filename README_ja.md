@@ -117,7 +117,8 @@ print(cc.choices[0].message.content)
 
 ## 使い分けルール 🧭
 
-- `gpt-*` → `openai`
+- `gpt-oss-*` → 固定推測しない（環境変数フォールバック。必要なら `provider=` 指定）
+- `gpt-*`（`gpt-oss-*` を除く） → `openai`
 - `gemini-*` → `google`
 - `claude-*` → `anthropic`（`CLAUDE_API_KEY` がある場合）→ `openrouter`（`OPENROUTER_API_KEY` がある場合）→ それ以外は `compat`
 - 推測できないモデル名は、環境変数があるものを優先順で選びます: `lmstudio` → `ollama` → `openrouter` → `anthropic` → `google`
